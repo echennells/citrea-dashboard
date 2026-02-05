@@ -1,0 +1,15 @@
+# -- Builder stage --
+FROM rust:1.83-bookworm AS builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+COPY src/ src/
+RUN cargo build --release --bin citread
+
+# -- Runtime stage --
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/citread /usr/local/bin/citread
+RUN mkdir -p /data
+ENTRYPOINT ["citread", "--db-path", "/data/citrea.db", "--json-path", "/data/all_commitments.json"]

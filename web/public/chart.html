@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chart — Citrea Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+  <script src="apexcharts.min.js"></script>
+  <script src="chart-lib.js"></script>
+  <style>
+    body { background: var(--bg); margin: 0; padding: 1.5rem; }
+    .popout-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      max-width: 1400px;
+      margin: 0 auto 1rem;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .popout-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+    }
+    #popout-chart {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      box-shadow: var(--shadow-sm);
+    }
+    #debug-status {
+      max-width: 1400px;
+      margin: 0.5rem auto;
+      font-size: 0.75rem;
+      color: var(--text-faint);
+    }
+  </style>
+</head>
+<body>
+  <div class="popout-header">
+    <h1 class="popout-title" id="popout-title">Chart</h1>
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <label class="prelaunch-toggle" id="prelaunch-toggle">
+        <input type="checkbox" id="prelaunch-check">
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Pre-launch</span>
+      </label>
+      <button class="log-toggle" id="log-toggle">LOG</button>
+      <div class="period-toggle" id="period-toggle">
+        <button class="period-btn" data-period="all">All</button>
+        <button class="period-btn" data-period="7d">7d</button>
+        <button class="period-btn" data-period="24h">24h</button>
+        <button class="period-btn" data-period="4h">4h</button>
+      </div>
+    </div>
+  </div>
+  <div id="popout-chart"></div>
+  <div id="debug-status"></div>
+
+  <script>
+  (function () {
+    var C = window.CitreaCharts;
+    var dbg = document.getElementById('debug-status');
+    function log(msg) { dbg.textContent = msg; }
+
+    if (typeof ApexCharts === 'undefined') {
+      log('ERROR: ApexCharts not loaded');
+      return;
+    }
+    log('ApexCharts loaded OK, reading params...');
+
+    var CHARTS = {
+      'fee-per-tx': { endpoint: '/api/charts/fee-per-tx', label: 'Fee/Tx (sats)', title: 'Avg Fee / Tx (sats)', color: '#ea580c', type: 'area' },
+      'fees':       { endpoint: '/api/charts/fees',       label: 'L1 Fee (sats)',   title: 'L1 Fee (sats) per Batch', color: null,      type: 'stacked' },
+      'tx-count':   { endpoint: '/api/charts/tx-count',   label: 'Tx Count',        title: 'Citrea Tx Count per Batch', color: '#f97316', type: 'bar' },
+      'utilization':{ endpoint: '/api/charts/utilization', label: 'Utilization %',   title: 'Gas Utilization %', color: '#3b82f6', type: 'area' }
+    };
+
+    var params = new URLSearchParams(window.location.search);
+    var chartSlug = params.get('chart') || 'fee-per-tx';
+    var period = params.get('period') || 'all';
+    var showPrelaunch = params.get('prelaunch') === '1';
+    var launchBatchIndex = null;
+
+    var prelaunchCheck = document.getElementById('prelaunch-check');
+    if (prelaunchCheck) {
+      prelaunchCheck.checked = showPrelaunch;
+      prelaunchCheck.addEventListener('change', function () {
+        showPrelaunch = prelaunchCheck.checked;
+        var u = new URL(window.location);
+        if (showPrelaunch) u.searchParams.set('prelaunch', '1');
+        else u.searchParams.delete('prelaunch');
+        history.replaceState(null, '', u);
+        if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+        fetchAndRender();
+      });
+    }
+
+    var cfg = CHARTS[chartSlug];
+    if (!cfg) {
+      log('ERROR: Unknown chart slug: ' + chartSlug);
+      document.getElementById('popout-title').textContent = 'Unknown chart';
+      return;
+    }
+
+    document.title = cfg.title + ' \u2014 Citrea Dashboard';
+    document.getElementById('popout-title').textContent = cfg.title;
+
+    var logSupported = (chartSlug === 'fee-per-tx' || chartSlug === 'tx-count');
+    if (!logSupported) document.getElementById('log-toggle').style.display = 'none';
+
+    var buttons = document.querySelectorAll('#period-toggle .period-btn');
+    buttons.forEach(function (b) {
+      if (b.dataset.period === period) b.classList.add('active');
+    });
+
+    var chartHeight = Math.max(300, window.innerHeight - 120);
+    var chartInstance = null;
+    var logScale = false;
+
+    function chartOpts() {
+      return { logScale: logScale, height: chartHeight, showPrelaunch: showPrelaunch, launchBatchIndex: launchBatchIndex };
+    }
+
+    function renderChart(data) {
+      if (cfg.type === 'stacked') {
+        renderFeesChart(data);
+      } else {
+        renderSimpleChart(data);
+      }
+    }
+
+    function renderSimpleChart(data) {
+      var xyData = data.map(function (d) { return { x: d.x, y: d.y }; });
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      var opts = C.makeChartOpts(cfg.type, cfg.label, cfg.color, xyData, chartOpts());
+      chartInstance = new ApexCharts(document.getElementById('popout-chart'), opts);
+      chartInstance.render();
+      log('Chart rendered (' + data.length + ' points)');
+    }
+
+    function renderFeesChart(data) {
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      var opts = C.makeFeesChartOpts(data, chartOpts());
+      chartInstance = new ApexCharts(document.getElementById('popout-chart'), opts);
+      chartInstance.render();
+      log('Chart rendered (' + data.length + ' points)');
+    }
+
+    function fetchAndRender() {
+      var url = cfg.endpoint + '?period=' + encodeURIComponent(period) + '&prelaunch=' + (showPrelaunch ? '1' : '0');
+      log('Fetching ' + url + ' ...');
+      fetch(url)
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (resp) {
+          var data = resp.data;
+          if (resp.launch_batch_index != null) launchBatchIndex = resp.launch_batch_index;
+          log('Received ' + data.length + ' points, rendering...');
+          renderChart(data);
+        })
+        .catch(function (e) {
+          log('ERROR: ' + e.message);
+        });
+    }
+
+    document.getElementById('period-toggle').addEventListener('click', function (e) {
+      var btn = e.target.closest('.period-btn');
+      if (!btn) return;
+      var newPeriod = btn.dataset.period;
+      if (newPeriod === period) return;
+      period = newPeriod;
+      buttons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+
+      var u = new URL(window.location);
+      u.searchParams.set('period', period);
+      history.replaceState(null, '', u);
+
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+      fetchAndRender();
+    });
+
+    document.getElementById('log-toggle').addEventListener('click', function () {
+      logScale = !logScale;
+      this.classList.toggle('active', logScale);
+      if (chartInstance) {
+        chartInstance.destroy();
+        chartInstance = null;
+      }
+      fetchAndRender();
+    });
+
+    fetchAndRender();
+  })();
+  </script>
+</body>
+</html>

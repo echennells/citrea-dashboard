@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — Citrea Dashboard</title>
+  <meta name="description" content="About the Citrea Dashboard — an independent analytics tool for the Citrea Bitcoin ZK-rollup.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+  <style>
+    .about-wrap {
+      max-width: 680px;
+      margin: 2.5rem auto;
+      padding: 0 1.5rem;
+    }
+    .about-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .about-card h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+    .about-card p {
+      font-size: 0.88rem;
+      line-height: 1.7;
+      color: var(--text-dim);
+      margin-bottom: 1rem;
+    }
+    .about-card p:last-child {
+      margin-bottom: 0;
+    }
+    .about-card a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s;
+    }
+    .about-card a:hover {
+      border-bottom-color: var(--accent);
+    }
+    .about-card h3 {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .about-back {
+      display: inline-block;
+      margin-bottom: 1.25rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .about-back:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="about-wrap">
+    <a href="/" class="about-back">&larr; Back to dashboard</a>
+    <div class="about-card">
+      <h2>About this dashboard</h2>
+      <p>
+        This is an independent analytics dashboard for <a href="https://citrea.xyz">Citrea</a>,
+        a ZK-rollup that settles on Bitcoin. It is not affiliated with or endorsed by the Citrea team.
+      </p>
+
+      <h3>What it tracks</h3>
+      <p>
+        Every Citrea batch requires two Bitcoin transactions: a <strong>commitment</strong>
+        (the sequencer posts the L2 state root) and a <strong>proof</strong> (a ZK proof
+        verifying the state transition). This dashboard monitors every batch and tracks
+        transaction volume, gas utilization, Bitcoin settlement fees, proof timing, and
+        network anomalies.
+      </p>
+
+      <h3>Data sources</h3>
+      <p>
+        All data is derived from two primary sources. <strong>Bitcoin blocks</strong> are
+        read directly from a Bitcoin Core full node to discover commitment and proof
+        transactions and compute on-chain fees. <strong>Citrea's public APIs</strong>
+        (the Citrea RPC and batch explorer) provide L2 block data, transaction counts,
+        gas usage, and proof-to-batch mappings. The two are cross-referenced to build a
+        complete picture of each batch's lifecycle from L2 execution through L1 settlement.
+      </p>
+
+      <h3>How it works</h3>
+      <p>
+        A background daemon continuously scans new Bitcoin blocks for Citrea sequencer
+        and prover transactions, enriches each batch with L2 data from the Citrea RPC,
+        and stores everything in a local database. The web dashboard queries this database
+        and refreshes every 60 seconds.
+      </p>
+
+      <p>
+        Built by <a href="https://yvrbtclabs.dev">YVR BTC Labs</a>.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    <span class="footer-dot"></span>
+    made by <a href="https://yvrbtclabs.dev">yvrbtclabs.dev</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="methodology.html">Methodology</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="about.html">About</a>
+  </footer>
+</body>
+</html>

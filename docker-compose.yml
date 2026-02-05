@@ -1,0 +1,35 @@
+services:
+  daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile.daemon
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=info
+      - BTC_RPC_HOST=${BTC_RPC_HOST}
+      - BTC_RPC_USER=${BTC_RPC_USER}
+      - BTC_RPC_PASS=${BTC_RPC_PASS}
+
+  dashboard:
+    build: ./web
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/data:ro
+    environment:
+      - SPARK_MNEMONIC=${SPARK_MNEMONIC:-}
+      - SPARK_NETWORK=${SPARK_NETWORK:-MAINNET}
+    restart: unless-stopped
+
+  dashboard-dev:
+    build: ./web
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data:/data:ro
+    environment:
+      - SPARK_MNEMONIC=${SPARK_MNEMONIC:-}
+      - SPARK_NETWORK=${SPARK_NETWORK:-MAINNET}
+    restart: unless-stopped
