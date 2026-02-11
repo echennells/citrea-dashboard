@@ -1,3 +1,4 @@
+use citreaanalysis::citrea_rpc::{DEFAULT_BATCH_EXPLORER_URL, DEFAULT_CITREA_RPC_URL};
 use citreaanalysis::daemon::{self, DaemonConfig};
 use clap::Parser;
 
@@ -35,6 +36,14 @@ struct Args {
     /// Bitcoin Core RPC password
     #[arg(long, env = "BTC_RPC_PASS")]
     btc_rpc_pass: String,
+
+    /// Citrea L2 RPC URL
+    #[arg(long, env = "CITREA_RPC_URL", default_value = DEFAULT_CITREA_RPC_URL)]
+    citrea_rpc_url: String,
+
+    /// Batch explorer API URL
+    #[arg(long, env = "BATCH_EXPLORER_URL", default_value = DEFAULT_BATCH_EXPLORER_URL)]
+    batch_explorer_url: String,
 }
 
 fn main() {
@@ -50,6 +59,8 @@ fn main() {
         btc_rpc_host: args.btc_rpc_host,
         btc_rpc_user: args.btc_rpc_user,
         btc_rpc_pass: args.btc_rpc_pass,
+        citrea_rpc_url: args.citrea_rpc_url,
+        batch_explorer_url: args.batch_explorer_url,
     };
 
     if let Err(e) = daemon::run(config) {

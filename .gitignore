@@ -4,4 +4,4 @@ web/node_modules/
 web/screenshots/
 web/test-results/
 test-results/
-data/*.db
+data/*.db*

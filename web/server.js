@@ -9,7 +9,7 @@ const DB_PATH = process.env.DB_PATH || '/data/citrea.db';
 
 let db;
 try {
-  db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+  db = new Database(DB_PATH, { fileMustExist: true });
   db.pragma('journal_mode = WAL');
   const row = db.prepare('SELECT COUNT(*) AS cnt FROM commitments').get();
   console.log(`Database loaded: ${row.cnt} commitments`);
@@ -48,14 +48,12 @@ const PRE_LAUNCH_BATCH_COUNT = (() => {
 const MAX_CHART_POINTS = 400;
 
 // --- SQL fee fragments (single source of truth) ---
-// Per-row expressions
-const TOTAL_FEE = 'COALESCE(btc_fee_sats,0) + COALESCE(commit_fee_sats,0) + COALESCE(proof_fee_sats,0) + COALESCE(proof_commit_fee_sats,0)';
-const COMMITMENT_FEE = 'COALESCE(btc_fee_sats,0) + COALESCE(commit_fee_sats,0)';
-const PROOF_FEE = 'COALESCE(proof_fee_sats,0) + COALESCE(proof_commit_fee_sats,0)';
-// Aggregated expressions
-const TOTAL_FEE_SUM = 'COALESCE(SUM(btc_fee_sats),0) + COALESCE(SUM(commit_fee_sats),0) + COALESCE(SUM(proof_fee_sats),0) + COALESCE(SUM(proof_commit_fee_sats),0)';
+const COMMITMENT_FEE     = 'COALESCE(btc_fee_sats,0) + COALESCE(commit_fee_sats,0)';
+const PROOF_FEE          = 'COALESCE(proof_fee_sats,0) + COALESCE(proof_commit_fee_sats,0)';
+const TOTAL_FEE          = `${COMMITMENT_FEE} + ${PROOF_FEE}`;
 const COMMITMENT_FEE_SUM = 'COALESCE(SUM(btc_fee_sats),0) + COALESCE(SUM(commit_fee_sats),0)';
-const PROOF_FEE_SUM = 'COALESCE(SUM(proof_fee_sats),0) + COALESCE(SUM(proof_commit_fee_sats),0)';
+const PROOF_FEE_SUM      = 'COALESCE(SUM(proof_fee_sats),0) + COALESCE(SUM(proof_commit_fee_sats),0)';
+const TOTAL_FEE_SUM      = `${COMMITMENT_FEE_SUM} + ${PROOF_FEE_SUM}`;
 
 function periodToMinTime(period, includePrelaunch) {
   const now = Math.floor(Date.now() / 1000);
@@ -66,9 +64,18 @@ function periodToMinTime(period, includePrelaunch) {
   return (includePrelaunch ? 0 : MAINNET_TS);
 }
 
-// --- In-memory response cache (60s TTL) ---
+// --- In-memory response cache (60s TTL, max 200 entries) ---
 const CACHE_TTL_MS = 60_000;
+const CACHE_MAX_SIZE = 200;
 const responseCache = new Map();
+
+// Sweep expired entries every 60s
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of responseCache) {
+    if (now - entry.ts >= CACHE_TTL_MS) responseCache.delete(key);
+  }
+}, CACHE_TTL_MS);
 
 function cached(keyFn, handler) {
   return (req, res) => {
@@ -80,6 +87,11 @@ function cached(keyFn, handler) {
     }
     const origJson = res.json.bind(res);
     res.json = (data) => {
+      if (responseCache.size >= CACHE_MAX_SIZE) {
+        // Evict oldest entry
+        const oldest = responseCache.keys().next().value;
+        responseCache.delete(oldest);
+      }
       responseCache.set(key, { data, ts: Date.now() });
       res.setHeader('X-Cache', 'MISS');
       return origJson(data);
@@ -89,6 +101,38 @@ function cached(keyFn, handler) {
 }
 
 app.use(express.json());
+
+// --- CORS ---
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '';
+if (CORS_ORIGIN) {
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', CORS_ORIGIN);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+}
+
+// --- Rate limiting ---
+function rateLimit(windowMs, max) {
+  const hits = new Map();
+  setInterval(() => hits.clear(), windowMs);
+  return (req, res, next) => {
+    const key = req.ip;
+    const count = (hits.get(key) || 0) + 1;
+    hits.set(key, count);
+    if (count > max) {
+      return res.status(429).json({ error: 'Too many requests' });
+    }
+    next();
+  };
+}
+
+// 100 requests per minute for general API, 10 per minute for payment creation
+app.use('/api/', rateLimit(60_000, 100));
+app.use('/api/payment/create-invoice', rateLimit(60_000, 10));
+
 app.get('/llm.txt', (_req, res) => res.redirect(301, '/llms.txt'));
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
@@ -247,8 +291,7 @@ app.get('/api/overview', cached(req => `overview:${req.query.period || 'all'}:${
     SELECT
       COUNT(*)                                           AS total_batches,
       COALESCE(SUM(l2_tx_count), 0)                      AS total_l2_txs,
-      ROUND(AVG(CASE WHEN btc_block_time >= ${MAINNET_TS} AND l2_gas_limit > 0
-        THEN l2_gas_used * 100.0 / l2_gas_limit END), 2) AS avg_gas_util_pct,
+      ROUND(1.0 * SUM(l2_tx_count) / NULLIF(MAX(l1_height) - MIN(l1_height), 0), 1) AS avg_l2_txs_per_btc_block,
       ${COMMITMENT_FEE_SUM} AS total_commitment_fees,
       ${PROOF_FEE_SUM} AS total_proof_fees,
       ${TOTAL_FEE_SUM} AS total_btc_fees,
@@ -422,7 +465,14 @@ app.get('/api/charts/fee-per-tx', cached(req => `chart:fee-per-tx:${req.query.pe
       ORDER BY bucket
     `).all(minTime);
   }
-  res.json({ data: rows, launch_batch_index: LAUNCH_BATCH_INDEX });
+  // Count recent batches with txs but no proof data yet
+  const { gap } = db.prepare(`
+    SELECT COUNT(*) AS gap FROM commitments
+    WHERE l2_tx_count > 0 AND proof_fee_sats IS NULL
+      AND (btc_block_time IS NULL OR btc_block_time >= ?)
+  `).get(minTime);
+
+  res.json({ data: rows, launch_batch_index: LAUNCH_BATCH_INDEX, proof_gap: gap });
 }));
 
 // GET /api/charts/tx-count?period=all|7d|24h|4h&prelaunch=0|1
@@ -502,35 +552,52 @@ app.get('/api/charts/fees', cached(req => `chart:fees:${req.query.period || 'all
   res.json({ data: rows, launch_batch_index: LAUNCH_BATCH_INDEX });
 }));
 
-// GET /api/charts/utilization?period=all|7d|24h|4h&prelaunch=0|1
-app.get('/api/charts/utilization', cached(req => `chart:util:${req.query.period || 'all'}:${req.query.prelaunch || '0'}`, (req, res) => {
+// GET /api/charts/l2-throughput?period=all|7d|24h|4h&prelaunch=0|1
+app.get('/api/charts/l2-throughput', cached(req => `chart:l2tp:${req.query.period || 'all'}:${req.query.prelaunch || '0'}`, (req, res) => {
   const period = req.query.period || 'all';
   const prelaunch = req.query.prelaunch === '1';
   const minTime = periodToMinTime(period, prelaunch);
-  const where = 'l2_gas_limit > 0 AND (btc_block_time IS NULL OR btc_block_time >= ?)';
+  const where = 'l1_height IS NOT NULL AND l2_tx_count IS NOT NULL AND (btc_block_time IS NULL OR btc_block_time >= ?)';
   const { cnt } = db.prepare(`SELECT COUNT(*) AS cnt FROM commitments WHERE ${where}`).get(minTime);
 
   let rows;
   if (cnt <= MAX_CHART_POINTS) {
+    // For each batch, compute l2_tx_count / (l1_blocks since previous batch), clamped to min 1
     rows = db.prepare(`
+      WITH lagged AS (
+        SELECT batch_index,
+               l2_tx_count,
+               l1_height,
+               LAG(l1_height) OVER (ORDER BY batch_index) AS prev_l1
+        FROM commitments
+        WHERE ${where}
+      )
       SELECT batch_index AS x,
-             ROUND(l2_gas_used * 100.0 / l2_gas_limit, 4) AS y
-      FROM commitments
-      WHERE ${where}
+             ROUND(1.0 * l2_tx_count / MAX(l1_height - prev_l1, 1), 1) AS y
+      FROM lagged
+      WHERE prev_l1 IS NOT NULL
       ORDER BY batch_index
     `).all(minTime);
   } else {
     const bucketSize = Math.ceil(cnt / MAX_CHART_POINTS);
     rows = db.prepare(`
-      WITH numbered AS (
-        SELECT batch_index AS x,
-               l2_gas_used * 100.0 / l2_gas_limit AS y,
-               (ROW_NUMBER() OVER (ORDER BY batch_index) - 1) / ${bucketSize} AS bucket
+      WITH lagged AS (
+        SELECT batch_index,
+               l2_tx_count,
+               l1_height,
+               LAG(l1_height) OVER (ORDER BY batch_index) AS prev_l1
         FROM commitments
         WHERE ${where}
+      ),
+      numbered AS (
+        SELECT batch_index AS x,
+               1.0 * l2_tx_count / MAX(l1_height - prev_l1, 1) AS y,
+               (ROW_NUMBER() OVER (ORDER BY batch_index) - 1) / ${bucketSize} AS bucket
+        FROM lagged
+        WHERE prev_l1 IS NOT NULL
       )
       SELECT CAST((MIN(x) + MAX(x)) / 2 AS INTEGER) AS x,
-             ROUND(AVG(y), 4) AS y
+             ROUND(AVG(y), 1) AS y
       FROM numbered
       GROUP BY bucket
       ORDER BY bucket
@@ -539,149 +606,14 @@ app.get('/api/charts/utilization', cached(req => `chart:util:${req.query.period 
   res.json({ data: rows, launch_batch_index: LAUNCH_BATCH_INDEX });
 }));
 
-// GET /api/events — detect noteworthy anomalies
+// GET /api/events — read pre-computed events from the daemon's events table
 app.get('/api/events', cached(() => 'events', (_req, res) => {
-  const events = [];
-
-  // 1. Low-activity streaks: runs of 3+ consecutive batches with < 10 txs
-  const allRows = db.prepare(`
-    SELECT batch_index, l2_tx_count, btc_block_time
-    FROM commitments
-    WHERE (btc_block_time IS NULL OR btc_block_time >= ${MAINNET_TS})
-    ORDER BY batch_index
+  const rows = db.prepare(`
+    SELECT event_type AS type, severity, title, detail,
+           batch_start, batch_end, time_start, time_end
+    FROM events WHERE resolved = 0 ORDER BY time_end DESC
   `).all();
-
-  let streak = [];
-  for (const r of allRows) {
-    if (r.l2_tx_count !== null && r.l2_tx_count < 10) {
-      streak.push(r);
-    } else {
-      if (streak.length >= 3) {
-        events.push({
-          type: 'low_activity',
-          severity: streak.length >= 10 ? 'high' : 'medium',
-          title: `Low activity: ${streak.length} batches with < 10 txs`,
-          detail: `Batches ${streak[0].batch_index}–${streak[streak.length - 1].batch_index} averaged ${(streak.reduce((s, r) => s + r.l2_tx_count, 0) / streak.length).toFixed(1)} txs/batch`,
-          batch_start: streak[0].batch_index,
-          batch_end: streak[streak.length - 1].batch_index,
-          time_start: streak[0].btc_block_time,
-          time_end: streak[streak.length - 1].btc_block_time
-        });
-      }
-      streak = [];
-    }
-  }
-  if (streak.length >= 3) {
-    events.push({
-      type: 'low_activity',
-      severity: streak.length >= 10 ? 'high' : 'medium',
-      title: `Low activity: ${streak.length} batches with < 10 txs`,
-      detail: `Batches ${streak[0].batch_index}–${streak[streak.length - 1].batch_index} averaged ${(streak.reduce((s, r) => s + r.l2_tx_count, 0) / streak.length).toFixed(1)} txs/batch`,
-      batch_start: streak[0].batch_index,
-      batch_end: streak[streak.length - 1].batch_index,
-      time_start: streak[0].btc_block_time,
-      time_end: streak[streak.length - 1].btc_block_time
-    });
-  }
-
-  // 2. Batch bunching: 4+ batches in the same L1 block
-  const bunches = db.prepare(`
-    SELECT l1_height, COUNT(*) AS cnt,
-           MIN(batch_index) AS batch_start, MAX(batch_index) AS batch_end,
-           SUM(l2_tx_count) AS total_txs, SUM(btc_fee_sats) AS total_fees,
-           MIN(btc_block_time) AS time
-    FROM commitments
-    WHERE (btc_block_time IS NULL OR btc_block_time >= ${MAINNET_TS})
-    GROUP BY l1_height
-    HAVING cnt >= 4
-    ORDER BY batch_start DESC
-  `).all();
-  for (const b of bunches) {
-    events.push({
-      type: 'batch_bunching',
-      severity: b.cnt >= 5 ? 'high' : 'medium',
-      title: `${b.cnt} batches in one L1 block`,
-      detail: `Batches ${b.batch_start}–${b.batch_end} all landed in L1 block ${b.l1_height} (${b.total_txs} total txs, ${b.total_fees} sats fees)`,
-      batch_start: b.batch_start,
-      batch_end: b.batch_end,
-      time_start: b.time,
-      time_end: b.time
-    });
-  }
-
-  // 3. Commitment posting delays — disabled for now, needs more tuning
-  // to properly distinguish slow Bitcoin blocks from slow Citrea posting.
-
-  // 4. Fee spikes: dynamically threshold at > 5x the median fee
-  const medianRow = db.prepare(`
-    WITH ordered AS (
-      SELECT ${TOTAL_FEE} AS total_fee,
-             ROW_NUMBER() OVER (ORDER BY ${TOTAL_FEE}) AS rn,
-             COUNT(*) OVER () AS total
-      FROM commitments
-      WHERE btc_fee_sats IS NOT NULL AND (btc_block_time IS NULL OR btc_block_time >= ${MAINNET_TS})
-    )
-    SELECT total_fee AS median FROM ordered WHERE rn = (total + 1) / 2
-  `).get();
-  const medianFee = medianRow ? medianRow.median : 0;
-  const feeThreshold = medianFee * 5;
-
-  if (feeThreshold > 0) {
-    const feeSpikes = db.prepare(`
-      SELECT batch_index,
-             ${TOTAL_FEE} AS total_fee,
-             l2_tx_count, btc_block_time,
-             CASE WHEN l2_tx_count > 0
-               THEN ROUND((${TOTAL_FEE}) * 1.0 / l2_tx_count, 1)
-               ELSE NULL END AS fee_per_tx
-      FROM commitments
-      WHERE (${TOTAL_FEE}) > ?
-        AND (btc_block_time IS NULL OR btc_block_time >= ${MAINNET_TS})
-      ORDER BY batch_index DESC
-    `).all(feeThreshold);
-    for (const f of feeSpikes) {
-      events.push({
-        type: 'fee_spike',
-        severity: f.total_fee > medianFee * 10 ? 'high' : 'medium',
-        title: `Fee spike: ${f.total_fee} sats on batch ${f.batch_index}`,
-        detail: `${f.l2_tx_count} txs, ${f.fee_per_tx != null ? f.fee_per_tx + ' sats/tx' : 'no txs'} (median is ${medianFee} sats)`,
-        batch_start: f.batch_index,
-        batch_end: f.batch_index,
-        time_start: f.btc_block_time,
-        time_end: f.btc_block_time
-      });
-    }
-  }
-
-  // 5. RPC lag: Citrea RPC L1 height behind Bitcoin Core height
-  try {
-    const btcRow = db.prepare(`SELECT value FROM sync_state WHERE key = 'btc_core_height'`).get();
-    const citreaRow = db.prepare(`SELECT value FROM sync_state WHERE key = 'citrea_rpc_l1_height'`).get();
-    if (btcRow && citreaRow) {
-      const btcHeight = parseInt(btcRow.value, 10);
-      const citreaHeight = parseInt(citreaRow.value, 10);
-      const lag = btcHeight - citreaHeight;
-      if (lag > 0) {
-        events.push({
-          type: 'rpc_lag',
-          severity: lag > 5 ? 'high' : 'medium',
-          title: `Citrea RPC ${lag} blocks behind Bitcoin Core`,
-          detail: `Bitcoin Core at block ${btcHeight}, Citrea RPC synced to ${citreaHeight}`,
-          batch_start: null,
-          batch_end: null,
-          time_start: Math.floor(Date.now() / 1000),
-          time_end: Math.floor(Date.now() / 1000)
-        });
-      }
-    }
-  } catch (e) {
-    // sync_state may not have these keys yet
-  }
-
-  // Sort all events by most recent first
-  events.sort((a, b) => (b.time_end || 0) - (a.time_end || 0));
-
-  res.json(events);
+  res.json(rows);
 }));
 
 // --- Startup ---

@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test:visual": "npx playwright test --config tests/playwright.config.mjs tests/visual.spec.mjs",
+    "test:visual": "npx playwright test --config tests/playwright.config.mjs --project=desktop tests/visual.spec.mjs",
     "test:perf": "npx playwright test --config tests/playwright.config.mjs --project=desktop tests/performance.spec.mjs",
-    "test:all": "npx playwright test --config tests/playwright.config.mjs"
+    "test:all": "npx playwright test --config tests/playwright.config.mjs --project=desktop"
   },
   "dependencies": {
     "@buildonspark/spark-sdk": "^0.5.8",

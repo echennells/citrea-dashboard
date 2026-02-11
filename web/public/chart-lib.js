@@ -63,10 +63,12 @@ window.CitreaCharts = (function () {
       },
       yaxis: {
         logarithmic: !!logScale,
+        min: opts.yMin != null ? opts.yMin : undefined,
+        max: opts.yMax != null ? opts.yMax : undefined,
         title: { text: label, style: { fontSize: '11px', color: '#6b7280' } },
         labels: {
           style: { fontSize: '10px', colors: '#6b7280' },
-          formatter: function (v) { return v != null ? Number(v).toLocaleString() : ''; }
+          formatter: opts.yFormatter || function (v) { return v != null ? Number(v).toLocaleString() : ''; }
         }
       },
       colors: [color],

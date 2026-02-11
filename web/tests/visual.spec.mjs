@@ -29,7 +29,6 @@ test.describe('Initial load', () => {
 
 test.describe('Overview period switches', () => {
   // Only run on desktop to avoid redundant screenshots
-  test.skip(({ }, testInfo) => testInfo.project.name !== 'desktop');
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -37,7 +36,8 @@ test.describe('Overview period switches', () => {
   });
 
   for (const period of ['7d', '24h', '4h', 'all']) {
-    test(`switch overview to ${period}`, async ({ page }) => {
+    test(`switch overview to ${period}`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== 'desktop', 'Only run on desktop');
       // Click the period button in the overview toggle
       const btn = page.locator(`#period-toggle .period-btn[data-period="${period}"]`);
       await btn.click();
@@ -62,8 +62,6 @@ test.describe('Overview period switches', () => {
 // ─── Chart period switching ─────────────────────────────────────────────────
 
 test.describe('Chart period switches', () => {
-  test.skip(({ }, testInfo) => testInfo.project.name !== 'desktop');
-
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppReady(page);
@@ -76,7 +74,8 @@ test.describe('Chart period switches', () => {
 
   for (const chart of charts) {
     for (const period of ['all', '7d', '4h']) {
-      test(`switch ${chart.label} to ${period}`, async ({ page }) => {
+      test(`switch ${chart.label} to ${period}`, async ({ page }, testInfo) => {
+        test.skip(testInfo.project.name !== 'desktop', 'Only run on desktop');
         const toggle = page.locator(`.period-toggle[data-chart="${chart.id}"]`);
         const btn = toggle.locator(`.period-btn[data-period="${period}"]`);
         await btn.click();
@@ -93,9 +92,8 @@ test.describe('Chart period switches', () => {
 // ─── Pre-launch toggle ──────────────────────────────────────────────────────
 
 test.describe('Pre-launch toggle', () => {
-  test.skip(({ }, testInfo) => testInfo.project.name !== 'desktop');
-
-  test('toggle pre-launch on and off', async ({ page }) => {
+  test('toggle pre-launch on and off', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'Only run on desktop');
     await page.goto('/');
     await waitForAppReady(page);
 
@@ -123,9 +121,8 @@ test.describe('Pre-launch toggle', () => {
 // ─── Slow 3G initial load ───────────────────────────────────────────────────
 
 test.describe('Slow 3G', () => {
-  test.skip(({ }, testInfo) => testInfo.project.name !== 'desktop');
-
-  test('initial load on simulated 3G', async ({ page }) => {
+  test('initial load on simulated 3G', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'Only run on desktop');
     const client = await enableSlow3G(page);
     const start = Date.now();
 

@@ -3,5 +3,7 @@ pub mod citrea_decoder;
 pub mod citrea_rpc;
 pub mod daemon;
 pub mod db;
+pub mod error;
+pub mod events;
 pub mod l2_counter;
 pub mod mempool_api;

@@ -1,5 +1,5 @@
 use crate::citrea_rpc::CitreaRpcClient;
-use std::error::Error;
+use crate::error::Result;
 
 const BATCH_RPC_SIZE: usize = 100;
 
@@ -9,7 +9,7 @@ pub fn count_l2_txs_in_range(
     rpc: &CitreaRpcClient,
     l2_start_block: u64,
     l2_end_block: u64,
-) -> Result<u64, Box<dyn Error>> {
+) -> Result<u64> {
     let block_numbers: Vec<u64> = (l2_start_block..=l2_end_block).collect();
     let results = rpc.get_block_tx_counts_batch(&block_numbers, BATCH_RPC_SIZE)?;
     let total: u64 = results.iter().map(|&(_, count)| count).sum();
@@ -29,7 +29,7 @@ pub fn aggregate_gas_in_range(
     rpc: &CitreaRpcClient,
     l2_start_block: u64,
     l2_end_block: u64,
-) -> Result<GasAggregates, Box<dyn Error>> {
+) -> Result<GasAggregates> {
     let block_numbers: Vec<u64> = (l2_start_block..=l2_end_block).collect();
     let results = rpc.get_block_gas_batch(&block_numbers, BATCH_RPC_SIZE)?;
 

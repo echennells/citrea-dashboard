@@ -17,19 +17,9 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
     environment:
       - SPARK_MNEMONIC=${SPARK_MNEMONIC:-}
       - SPARK_NETWORK=${SPARK_NETWORK:-MAINNET}
-    restart: unless-stopped
-
-  dashboard-dev:
-    build: ./web
-    ports:
-      - "3001:3000"
-    volumes:
-      - ./data:/data:ro
-    environment:
-      - SPARK_MNEMONIC=${SPARK_MNEMONIC:-}
-      - SPARK_NETWORK=${SPARK_NETWORK:-MAINNET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
     restart: unless-stopped

@@ -16,7 +16,6 @@
   let currentPaymentFeature = null;
 
   // --- Pre-launch state ---
-  const MAINNET_TS = 1769472000;
   const PRELAUNCH_KEY = 'citrea_prelaunch';
   let showPrelaunch = true;
   let launchBatchIndex = null;
@@ -235,7 +234,7 @@
     return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
 
-  function upsertChart(elId, label, data, color, type = 'area') {
+  function upsertChart(elId, label, data, color, type = 'area', extra = {}) {
     const xyData = data.map((d) => ({ x: d.x, y: d.y }));
     const logScale = chartLogScale[elId] || false;
 
@@ -245,7 +244,7 @@
       delete charts[elId];
     }
 
-    const opts = C.makeChartOpts(type, label, color, xyData, { logScale: logScale, ...chartOpts() });
+    const opts = C.makeChartOpts(type, label, color, xyData, { logScale: logScale, ...chartOpts(), ...extra });
     const chart = new ApexCharts(document.getElementById(elId), opts);
     chart.render();
     charts[elId] = chart;
@@ -299,8 +298,24 @@
     'chart-fee-per-tx': '/api/charts/fee-per-tx',
     'chart-fees': '/api/charts/fees',
     'chart-tx': '/api/charts/tx-count',
-    'chart-util': '/api/charts/utilization',
+    'chart-util': '/api/charts/l2-throughput',
   };
+
+  function updateProofGapWarning(proofGap) {
+    const box = document.getElementById('chart-fee-per-tx')?.closest('.chart-box');
+    if (!box) return;
+    let banner = box.querySelector('.proof-gap-banner');
+    if (proofGap > 10) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.className = 'proof-gap-banner';
+        box.querySelector('.chart-header').after(banner);
+      }
+      banner.textContent = `${proofGap} recent batches excluded — proof data not yet available`;
+    } else if (banner) {
+      banner.remove();
+    }
+  }
 
   async function refreshSingleChart(chartId) {
     showChartLoading(chartId);
@@ -311,10 +326,13 @@
       const data = resp.data;
       if (resp.launch_batch_index != null) launchBatchIndex = resp.launch_batch_index;
       await nextFrame();
-      if (chartId === 'chart-fee-per-tx') upsertChart('chart-fee-per-tx', 'Fee/Tx (sats)', data, '#ea580c');
+      if (chartId === 'chart-fee-per-tx') {
+        upsertChart('chart-fee-per-tx', 'Fee/Tx (sats)', data, '#ea580c');
+        updateProofGapWarning(resp.proof_gap || 0);
+      }
       else if (chartId === 'chart-tx') upsertChart('chart-tx', 'Tx Count', data, '#f97316', 'bar');
       else if (chartId === 'chart-fees') upsertFeesChart('chart-fees', data);
-      else if (chartId === 'chart-util') upsertChart('chart-util', 'Utilization %', data, '#3b82f6');
+      else if (chartId === 'chart-util') upsertChart('chart-util', 'L2 Txs/BTC Block', data, '#3b82f6');
     } catch (e) {
       console.error('Failed to refresh chart', chartId, e);
     } finally {
@@ -327,7 +345,7 @@
     'chart-fee-per-tx': 'fee-per-tx',
     'chart-fees': 'fees',
     'chart-tx': 'tx-count',
-    'chart-util': 'utilization',
+    'chart-util': 'l2-throughput',
   };
 
   // Delegated click handler for chart period toggles
@@ -383,7 +401,7 @@
         empty ? pend : (feePerTx != null ? feePerTx + ' sats' : '—');
       document.getElementById('card-txs').textContent = empty ? pend : fmt(ov.total_l2_txs);
       document.getElementById('card-util').textContent =
-        empty ? pend : (ov.avg_gas_util_pct != null ? ov.avg_gas_util_pct + '%' : '—');
+        empty ? pend : (ov.avg_l2_txs_per_btc_block != null ? ov.avg_l2_txs_per_btc_block : '—');
       document.getElementById('card-fees').textContent = empty ? pend : fmtSats(ov.total_btc_fees);
       document.getElementById('card-avg-txs').textContent =
         empty ? pend : (ov.avg_txs_per_batch != null ? ov.avg_txs_per_batch : '—');
@@ -429,9 +447,8 @@
 
   const typeLabels = {
     low_activity: 'Low Activity',
-    batch_bunching: 'Bunching',
-    // posting_delay: 'Post Delay', // disabled for now
     fee_spike: 'Fee Spike',
+    proof_delay: 'Proof Delay',
     rpc_lag: 'RPC Lag'
   };
 
@@ -439,23 +456,41 @@
     try {
       const events = await fetch('/api/events').then((r) => r.json());
       const el = document.getElementById('events-list');
+      el.textContent = '';
       if (events.length === 0) {
-        el.innerHTML = '<p class="events-loading">No anomalies detected.</p>';
+        const p = document.createElement('p');
+        p.className = 'events-loading';
+        p.textContent = 'No anomalies detected.';
+        el.appendChild(p);
       } else {
-        el.innerHTML = events.map((e) => {
-          const fmtTime = (t) => t ? new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
+        const fmtTime = (t) => t ? new Date(t * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
+        const ALLOWED_SEVERITIES = { low: 1, medium: 1, high: 1 };
+        events.forEach((e) => {
           const timeStr = e.time_start === e.time_end
             ? fmtTime(e.time_start)
-            : `${fmtTime(e.time_start)} — ${fmtTime(e.time_end)}`;
-          return `<div class="event-card severity-${e.severity}">
-            <span class="event-badge ${e.type}">${typeLabels[e.type] || e.type}</span>
-            <div class="event-body">
-              <div class="event-title">${e.title}</div>
-              <div class="event-detail">${e.detail}</div>
-              <div class="event-time">${timeStr}</div>
-            </div>
-          </div>`;
-        }).join('');
+            : `${fmtTime(e.time_start)} \u2014 ${fmtTime(e.time_end)}`;
+          const card = document.createElement('div');
+          card.className = 'event-card';
+          if (ALLOWED_SEVERITIES[e.severity]) card.classList.add('severity-' + e.severity);
+          const badge = document.createElement('span');
+          badge.className = 'event-badge';
+          if (typeLabels[e.type]) badge.classList.add(e.type);
+          badge.textContent = typeLabels[e.type] || e.type;
+          const body = document.createElement('div');
+          body.className = 'event-body';
+          const title = document.createElement('div');
+          title.className = 'event-title';
+          title.textContent = e.title;
+          const detail = document.createElement('div');
+          detail.className = 'event-detail';
+          detail.textContent = e.detail;
+          const time = document.createElement('div');
+          time.className = 'event-time';
+          time.textContent = timeStr;
+          body.append(title, detail, time);
+          card.append(badge, body);
+          el.appendChild(card);
+        });
       }
     } catch (e) {
       console.error('Failed to load events', e);
@@ -471,7 +506,7 @@
         fetch(`/api/charts/fee-per-tx?period=${chartPeriods['chart-fee-per-tx']}&prelaunch=${pl}`).then((r) => r.json()),
         fetch(`/api/charts/tx-count?period=${chartPeriods['chart-tx']}&prelaunch=${pl}`).then((r) => r.json()),
         fetch(`/api/charts/fees?period=${chartPeriods['chart-fees']}&prelaunch=${pl}`).then((r) => r.json()),
-        fetch(`/api/charts/utilization?period=${chartPeriods['chart-util']}&prelaunch=${pl}`).then((r) => r.json())
+        fetch(`/api/charts/l2-throughput?period=${chartPeriods['chart-util']}&prelaunch=${pl}`).then((r) => r.json())
       ]);
       // Update launch batch index from any response
       if (feePerTxResp.launch_batch_index != null) launchBatchIndex = feePerTxResp.launch_batch_index;
@@ -479,6 +514,7 @@
       // Stagger renders to avoid blocking the main thread
       await nextFrame();
       upsertChart('chart-fee-per-tx', 'Fee/Tx (sats)', feePerTxResp.data, '#ea580c');
+      updateProofGapWarning(feePerTxResp.proof_gap || 0);
       hideChartLoading('chart-fee-per-tx');
       await nextFrame();
       upsertChart('chart-tx', 'Tx Count', txResp.data, '#f97316', 'bar');
@@ -487,7 +523,7 @@
       upsertFeesChart('chart-fees', feesResp.data);
       hideChartLoading('chart-fees');
       await nextFrame();
-      upsertChart('chart-util', 'Utilization %', utilResp.data, '#3b82f6');
+      upsertChart('chart-util', 'L2 Txs/BTC Block', utilResp.data, '#3b82f6');
       hideChartLoading('chart-util');
     } catch (e) {
       console.error('Failed to load charts', e);

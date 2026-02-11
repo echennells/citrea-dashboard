@@ -1,12 +1,13 @@
+use crate::error::Result;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 
-pub const CITREA_RPC_URL: &str = "https://rpc.mainnet.citrea.xyz";
-pub const BATCH_EXPLORER_API_URL: &str = "https://batch-explorer.mainnet.citrea.xyz";
+pub const DEFAULT_CITREA_RPC_URL: &str = "https://rpc.mainnet.citrea.xyz";
+pub const DEFAULT_BATCH_EXPLORER_URL: &str = "https://batch-explorer.mainnet.citrea.xyz";
 
 /// Client for the Citrea L2 JSON-RPC API
 pub struct CitreaRpcClient {
     url: String,
+    batch_explorer_url: String,
     client: reqwest::blocking::Client,
 }
 
@@ -117,12 +118,17 @@ struct RpcError {
 
 impl CitreaRpcClient {
     pub fn new() -> Self {
-        Self::with_url(CITREA_RPC_URL)
+        Self::with_urls(DEFAULT_CITREA_RPC_URL, DEFAULT_BATCH_EXPLORER_URL)
     }
 
     pub fn with_url(url: &str) -> Self {
+        Self::with_urls(url, DEFAULT_BATCH_EXPLORER_URL)
+    }
+
+    pub fn with_urls(url: &str, batch_explorer_url: &str) -> Self {
         Self {
             url: url.to_string(),
+            batch_explorer_url: batch_explorer_url.to_string(),
             client: reqwest::blocking::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
@@ -135,7 +141,7 @@ impl CitreaRpcClient {
         &self,
         method: &str,
         params: serde_json::Value,
-    ) -> Result<Option<T>, Box<dyn Error>> {
+    ) -> Result<Option<T>> {
         let body = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -176,13 +182,13 @@ impl CitreaRpcClient {
     }
 
     /// Get the current sync status of the Citrea node
-    pub fn get_sync_status(&self) -> Result<SyncStatus, Box<dyn Error>> {
+    pub fn get_sync_status(&self) -> Result<SyncStatus> {
         self.rpc_call::<SyncStatus>("citrea_syncStatus", serde_json::json!([]))?
             .ok_or_else(|| "No result in sync status response".into())
     }
 
     /// Get the current synced L1 block height
-    pub fn get_l1_height(&self) -> Result<u64, Box<dyn Error>> {
+    pub fn get_l1_height(&self) -> Result<u64> {
         let status = self.get_sync_status()?;
         let height = u64::from_str_radix(
             status.l1_status.synced.trim_start_matches("0x"),
@@ -192,7 +198,7 @@ impl CitreaRpcClient {
     }
 
     /// Get the current synced L2 block height
-    pub fn get_l2_height(&self) -> Result<u64, Box<dyn Error>> {
+    pub fn get_l2_height(&self) -> Result<u64> {
         let status = self.get_sync_status()?;
         let height = u64::from_str_radix(
             status.l2_status.synced.trim_start_matches("0x"),
@@ -206,7 +212,7 @@ impl CitreaRpcClient {
     pub fn get_commitments_at_height(
         &self,
         l1_height: u64,
-    ) -> Result<Option<Vec<SequencerCommitment>>, Box<dyn Error>> {
+    ) -> Result<Option<Vec<SequencerCommitment>>> {
         self.rpc_call::<Vec<SequencerCommitment>>(
             "ledger_getSequencerCommitmentsOnSlotByNumber",
             serde_json::json!([l1_height]),
@@ -220,7 +226,7 @@ impl CitreaRpcClient {
         start_height: u64,
         end_height: u64,
         progress_callback: Option<&dyn Fn(usize, u64, u64)>,
-    ) -> Result<Vec<CommitmentWithL1Height>, Box<dyn Error>> {
+    ) -> Result<Vec<CommitmentWithL1Height>> {
         let mut all_commitments = Vec::new();
         let total = end_height.saturating_sub(start_height) + 1;
 
@@ -245,72 +251,12 @@ impl CitreaRpcClient {
         Ok(all_commitments)
     }
 
-    /// Find the earliest L1 height that contains a sequencer commitment
-    /// by binary searching from genesis_height to current_height.
-    pub fn find_first_commitment_height(
-        &self,
-        search_start: u64,
-        search_end: u64,
-    ) -> Result<Option<u64>, Box<dyn Error>> {
-        // Binary search: find the lowest height with a commitment
-        let mut lo = search_start;
-        let mut hi = search_end;
-        let mut best = None;
-
-        while lo <= hi {
-            let mid = lo + (hi - lo) / 2;
-
-            // Check a small window around mid for commitments
-            let mut found = false;
-            for h in mid..=(mid + 10).min(search_end) {
-                if let Some(commits) = self.get_commitments_at_height(h)? {
-                    if !commits.is_empty() {
-                        // Check if any commitment has a low batch index
-                        let min_idx = commits.iter().map(|c| c.batch_index()).min().unwrap_or(u64::MAX);
-                        if min_idx <= 10 {
-                            // We're near the start
-                            best = Some(h);
-                            found = true;
-                            hi = mid.saturating_sub(1);
-                            break;
-                        } else {
-                            // There are earlier commitments, search lower
-                            found = true;
-                            hi = mid.saturating_sub(1);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if !found {
-                lo = mid + 11;
-            }
-        }
-
-        // If binary search didn't converge well, do a linear scan from best found
-        if let Some(h) = best {
-            // Scan backwards from the found height to find the true first
-            let scan_start = h.saturating_sub(50);
-            for height in scan_start..h {
-                if let Some(commits) = self.get_commitments_at_height(height)? {
-                    if !commits.is_empty() {
-                        return Ok(Some(height));
-                    }
-                }
-            }
-            return Ok(Some(h));
-        }
-
-        Ok(None)
-    }
-
     /// Scan all commitments from the beginning by finding the first commitment
     /// and scanning forward to the current L1 height.
     pub fn scan_all_commitments(
         &self,
         progress_callback: Option<&dyn Fn(usize, u64, u64)>,
-    ) -> Result<Vec<CommitmentWithL1Height>, Box<dyn Error>> {
+    ) -> Result<Vec<CommitmentWithL1Height>> {
         let current_l1 = self.get_l1_height()?;
 
         // Citrea mainnet launched recently; start searching from a reasonable point.
@@ -326,7 +272,7 @@ impl CitreaRpcClient {
     }
 
     /// Get the latest batch index by checking the most recent commitment
-    pub fn get_latest_batch_index(&self) -> Result<Option<u64>, Box<dyn Error>> {
+    pub fn get_latest_batch_index(&self) -> Result<Option<u64>> {
         let current_l1 = self.get_l1_height()?;
 
         // Scan backwards from current height to find the most recent commitment
@@ -344,8 +290,8 @@ impl CitreaRpcClient {
     /// Fetch all batch proofs from the batch explorer API.
     /// Returns proofs ordered newest-first with the mapping from proof txid to commitment indexes.
     /// Uses pagination to retrieve all available proofs.
-    pub fn fetch_proofs_from_explorer(&self) -> Result<Vec<BatchExplorerProof>, Box<dyn Error>> {
-        let url = format!("{}/proofs?limit=10000", BATCH_EXPLORER_API_URL);
+    pub fn fetch_proofs_from_explorer(&self) -> Result<Vec<BatchExplorerProof>> {
+        let url = format!("{}/proofs?limit=10000", self.batch_explorer_url);
         let response = self.client.get(&url).send()?;
         let text = response.text()?;
         // The API response includes large state_diff fields we don't need;
@@ -355,7 +301,7 @@ impl CitreaRpcClient {
     }
 
     /// Get a summary of the current state
-    pub fn get_summary(&self) -> Result<BatchSummary, Box<dyn Error>> {
+    pub fn get_summary(&self) -> Result<BatchSummary> {
         let status = self.get_sync_status()?;
         let l1_height = u64::from_str_radix(
             status.l1_status.synced.trim_start_matches("0x"),
@@ -398,7 +344,7 @@ impl CitreaRpcClient {
     }
 
     /// Get the transaction count of a single L2 block by number.
-    pub fn get_block_tx_count(&self, block_number: u64) -> Result<u64, Box<dyn Error>> {
+    pub fn get_block_tx_count(&self, block_number: u64) -> Result<u64> {
         let hex_num = format!("0x{:x}", block_number);
         let result: Option<String> = self.rpc_call(
             "eth_getBlockTransactionCountByNumber",
@@ -413,13 +359,43 @@ impl CitreaRpcClient {
         }
     }
 
+    /// Send a batch JSON-RPC request with retry logic. Returns parsed response array.
+    fn batch_rpc_call(
+        &self,
+        batch_body: &[serde_json::Value],
+    ) -> Result<Vec<serde_json::Value>> {
+        let mut last_err = String::new();
+        for attempt in 0..3u64 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(500 * attempt));
+            }
+            match self.client.post(&self.url).json(&batch_body).send() {
+                Ok(response) => {
+                    let text = response.text()?;
+                    match serde_json::from_str::<Vec<serde_json::Value>>(&text) {
+                        Ok(parsed) => return Ok(parsed),
+                        Err(e) => {
+                            last_err = format!("Batch parse error (attempt {}): {}", attempt + 1, e);
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = format!("Batch request error (attempt {}): {}", attempt + 1, e);
+                    continue;
+                }
+            }
+        }
+        Err(format!("Batch RPC failed after 3 attempts: {}", last_err).into())
+    }
+
     /// Batch JSON-RPC: get transaction counts for multiple L2 blocks in a single HTTP request.
     /// Sends up to `batch_size` requests per HTTP call. Returns (block_number, tx_count) pairs.
     pub fn get_block_tx_counts_batch(
         &self,
         block_numbers: &[u64],
         batch_size: usize,
-    ) -> Result<Vec<(u64, u64)>, Box<dyn Error>> {
+    ) -> Result<Vec<(u64, u64)>> {
         let mut results = Vec::with_capacity(block_numbers.len());
 
         for chunk in block_numbers.chunks(batch_size) {
@@ -436,48 +412,7 @@ impl CitreaRpcClient {
                 })
                 .collect();
 
-            let mut last_err = String::new();
-            let mut batch_results: Option<Vec<serde_json::Value>> = None;
-
-            for attempt in 0..3u64 {
-                if attempt > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(500 * attempt));
-                }
-
-                match self
-                    .client
-                    .post(&self.url)
-                    .json(&batch_body)
-                    .send()
-                {
-                    Ok(response) => {
-                        let text = response.text()?;
-                        match serde_json::from_str::<Vec<serde_json::Value>>(&text) {
-                            Ok(parsed) => {
-                                batch_results = Some(parsed);
-                                break;
-                            }
-                            Err(e) => {
-                                last_err = format!(
-                                    "Batch parse error (attempt {}): {}",
-                                    attempt + 1,
-                                    e
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        last_err =
-                            format!("Batch request error (attempt {}): {}", attempt + 1, e);
-                        continue;
-                    }
-                }
-            }
-
-            let parsed = batch_results.ok_or_else(|| {
-                format!("Batch RPC failed after 3 attempts: {}", last_err)
-            })?;
+            let parsed = self.batch_rpc_call(&batch_body)?;
 
             // Match responses back to block numbers using the id field
             let mut counts: Vec<(usize, u64)> = Vec::new();
@@ -515,7 +450,7 @@ impl CitreaRpcClient {
         &self,
         block_numbers: &[u64],
         batch_size: usize,
-    ) -> Result<Vec<(u64, u64, u64)>, Box<dyn Error>> {
+    ) -> Result<Vec<(u64, u64, u64)>> {
         let mut results = Vec::with_capacity(block_numbers.len());
 
         for chunk in block_numbers.chunks(batch_size) {
@@ -532,48 +467,7 @@ impl CitreaRpcClient {
                 })
                 .collect();
 
-            let mut last_err = String::new();
-            let mut batch_results: Option<Vec<serde_json::Value>> = None;
-
-            for attempt in 0..3u64 {
-                if attempt > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(500 * attempt));
-                }
-
-                match self
-                    .client
-                    .post(&self.url)
-                    .json(&batch_body)
-                    .send()
-                {
-                    Ok(response) => {
-                        let text = response.text()?;
-                        match serde_json::from_str::<Vec<serde_json::Value>>(&text) {
-                            Ok(parsed) => {
-                                batch_results = Some(parsed);
-                                break;
-                            }
-                            Err(e) => {
-                                last_err = format!(
-                                    "Batch parse error (attempt {}): {}",
-                                    attempt + 1,
-                                    e
-                                );
-                                continue;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        last_err =
-                            format!("Batch request error (attempt {}): {}", attempt + 1, e);
-                        continue;
-                    }
-                }
-            }
-
-            let parsed = batch_results.ok_or_else(|| {
-                format!("Batch RPC failed after 3 attempts: {}", last_err)
-            })?;
+            let parsed = self.batch_rpc_call(&batch_body)?;
 
             // Match responses back to block numbers using the id field
             let mut entries: Vec<(usize, u64, u64)> = Vec::new();

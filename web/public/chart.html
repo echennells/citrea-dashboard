@@ -82,7 +82,7 @@
       'fee-per-tx': { endpoint: '/api/charts/fee-per-tx', label: 'Fee/Tx (sats)', title: 'Avg Fee / Tx (sats)', color: '#ea580c', type: 'area' },
       'fees':       { endpoint: '/api/charts/fees',       label: 'L1 Fee (sats)',   title: 'L1 Fee (sats) per Batch', color: null,      type: 'stacked' },
       'tx-count':   { endpoint: '/api/charts/tx-count',   label: 'Tx Count',        title: 'Citrea Tx Count per Batch', color: '#f97316', type: 'bar' },
-      'utilization':{ endpoint: '/api/charts/utilization', label: 'Utilization %',   title: 'Gas Utilization %', color: '#3b82f6', type: 'area' }
+      'l2-throughput':{ endpoint: '/api/charts/l2-throughput', label: 'L2 Txs/BTC Block', title: 'L2 Txs per BTC Block', color: '#3b82f6', type: 'area' }
     };
 
     var params = new URLSearchParams(window.location.search);

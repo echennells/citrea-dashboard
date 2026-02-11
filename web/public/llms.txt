@@ -10,7 +10,7 @@ This is an independent analytics dashboard for [Citrea](https://citrea.xyz), a Z
 - L2 transaction throughput per batch
 - Gas usage and utilization per batch
 - Bitcoin settlement fees paid to miners
-- Anomalous events (fee spikes, L1 gaps, low activity streaks, batch bunching)
+- Anomalous events (fee spikes, low activity streaks, RPC lag)
 
 Data is sourced directly from Bitcoin Core and the Citrea L2 RPC. The dashboard updates every 2 minutes.
 
@@ -20,9 +20,9 @@ All endpoints return JSON.
 
 - GET /api/overview?period=all|7d|24h|4h — Summary statistics (total txs, fees, gas utilization, averages)
 - GET /api/batches?offset=0&limit=50 — Paginated batch data (batch index, L1 height, L2 block range, tx count, gas, fees, timestamps)
-- GET /api/charts/gas-usage — Gas used per batch (x: batch_index, y: gas_used)
+- GET /api/charts/fee-per-tx — Average fee per transaction in sats per batch (x: batch_index, y: avg_fee)
 - GET /api/charts/tx-count — Transaction count per batch
-- GET /api/charts/fees — BTC fee in sats per batch
+- GET /api/charts/fees — L1 fee breakdown (commitment + proof) in sats per batch
 - GET /api/charts/utilization — Gas utilization percentage per batch
 - GET /api/events — Noteworthy anomalies detected across the dataset
 - GET /api/csv?token=TOKEN — Full dataset as CSV (requires paid token)
