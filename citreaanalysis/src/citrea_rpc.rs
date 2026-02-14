@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::utils::{parse_hex_u64, parse_hex_u64_or_default, parse_hex_u64_opt};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_CITREA_RPC_URL: &str = "https://rpc.mainnet.citrea.xyz";
@@ -48,16 +49,12 @@ pub struct SequencerCommitment {
 impl SequencerCommitment {
     /// Parse the batch index from hex to u64
     pub fn batch_index(&self) -> u64 {
-        u64::from_str_radix(self.index.trim_start_matches("0x"), 16).unwrap_or(0)
+        parse_hex_u64_or_default(&self.index, 0)
     }
 
     /// Parse the L2 end block number from hex to u64
     pub fn l2_end_block(&self) -> u64 {
-        u64::from_str_radix(
-            self.l2_end_block_number.trim_start_matches("0x"),
-            16,
-        )
-        .unwrap_or(0)
+        parse_hex_u64_or_default(&self.l2_end_block_number, 0)
     }
 }
 
@@ -190,20 +187,14 @@ impl CitreaRpcClient {
     /// Get the current synced L1 block height
     pub fn get_l1_height(&self) -> Result<u64> {
         let status = self.get_sync_status()?;
-        let height = u64::from_str_radix(
-            status.l1_status.synced.trim_start_matches("0x"),
-            16,
-        )?;
+        let height = parse_hex_u64(&status.l1_status.synced)?;
         Ok(height)
     }
 
     /// Get the current synced L2 block height
     pub fn get_l2_height(&self) -> Result<u64> {
         let status = self.get_sync_status()?;
-        let height = u64::from_str_radix(
-            status.l2_status.synced.trim_start_matches("0x"),
-            16,
-        )?;
+        let height = parse_hex_u64(&status.l2_status.synced)?;
         Ok(height)
     }
 
@@ -303,14 +294,8 @@ impl CitreaRpcClient {
     /// Get a summary of the current state
     pub fn get_summary(&self) -> Result<BatchSummary> {
         let status = self.get_sync_status()?;
-        let l1_height = u64::from_str_radix(
-            status.l1_status.synced.trim_start_matches("0x"),
-            16,
-        )?;
-        let l2_height = u64::from_str_radix(
-            status.l2_status.synced.trim_start_matches("0x"),
-            16,
-        )?;
+        let l1_height = parse_hex_u64(&status.l1_status.synced)?;
+        let l2_height = parse_hex_u64(&status.l2_status.synced)?;
 
         let latest_batch = self.get_latest_batch_index()?;
 
@@ -352,7 +337,7 @@ impl CitreaRpcClient {
         )?;
         match result {
             Some(s) => {
-                let count = u64::from_str_radix(s.trim_start_matches("0x"), 16)?;
+                let count = parse_hex_u64(&s)?;
                 Ok(count)
             }
             None => Ok(0),
@@ -424,7 +409,7 @@ impl CitreaRpcClient {
                 let count = entry
                     .get("result")
                     .and_then(|v| v.as_str())
-                    .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                    .and_then(|s| parse_hex_u64_opt(s))
                     .unwrap_or(0);
                 counts.push((id, count));
             }
@@ -480,12 +465,12 @@ impl CitreaRpcClient {
                 let gas_used = result
                     .and_then(|r| r.get("gasUsed"))
                     .and_then(|v| v.as_str())
-                    .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                    .and_then(|s| parse_hex_u64_opt(s))
                     .unwrap_or(0);
                 let gas_limit = result
                     .and_then(|r| r.get("gasLimit"))
                     .and_then(|v| v.as_str())
-                    .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+                    .and_then(|s| parse_hex_u64_opt(s))
                     .unwrap_or(0);
                 entries.push((id, gas_used, gas_limit));
             }

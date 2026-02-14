@@ -55,6 +55,26 @@ const COMMITMENT_FEE_SUM = 'COALESCE(SUM(btc_fee_sats),0) + COALESCE(SUM(commit_
 const PROOF_FEE_SUM      = 'COALESCE(SUM(proof_fee_sats),0) + COALESCE(SUM(proof_commit_fee_sats),0)';
 const TOTAL_FEE_SUM      = `${COMMITMENT_FEE_SUM} + ${PROOF_FEE_SUM}`;
 
+const FIND_TX_BATCH_SQL = `
+  SELECT batch_index,
+    CASE
+      WHEN commit_txid = ? THEN 'Commitment Inscribe'
+      WHEN btc_txid = ? THEN 'Commitment Reveal'
+      WHEN proof_commit_txid = ? THEN 'Proof Inscribe'
+      WHEN proof_txid = ? THEN 'Proof Reveal'
+    END AS tx_type
+  FROM commitments
+  WHERE commit_txid = ? OR btc_txid = ? OR proof_commit_txid = ? OR proof_txid = ?
+  LIMIT 1
+`;
+
+function findTxBatch(txid) {
+  return db.prepare(FIND_TX_BATCH_SQL).get(
+    txid, txid, txid, txid,
+    txid, txid, txid, txid
+  );
+}
+
 function periodToMinTime(period, includePrelaunch) {
   const now = Math.floor(Date.now() / 1000);
   if (period === '4h') return Math.max(now - 14400, MAINNET_TS);
@@ -622,18 +642,7 @@ app.get('/api/tx/:txid', cached(req => `tx:${req.params.txid}`, async (req, res)
     tx.hex = await hexResp.text();
 
     // Enrich with Citrea batch info
-    const batchInfo = db.prepare(`
-      SELECT batch_index,
-        CASE
-          WHEN commit_txid = ? THEN 'Commitment Inscribe'
-          WHEN btc_txid = ? THEN 'Commitment Reveal'
-          WHEN proof_commit_txid = ? THEN 'Proof Inscribe'
-          WHEN proof_txid = ? THEN 'Proof Reveal'
-        END AS tx_type
-      FROM commitments
-      WHERE commit_txid = ? OR btc_txid = ? OR proof_commit_txid = ? OR proof_txid = ?
-      LIMIT 1
-    `).get(txid, txid, txid, txid, txid, txid, txid, txid);
+    const batchInfo = findTxBatch(txid);
     if (batchInfo) {
       tx.citrea = { batch_index: batchInfo.batch_index, tx_type: batchInfo.tx_type };
 
@@ -644,18 +653,7 @@ app.get('/api/tx/:txid', cached(req => `tx:${req.params.txid}`, async (req, res)
 
       // Input origin: what feeds into this tx
       for (const vin of tx.vin) {
-        const origin = db.prepare(`
-          SELECT batch_index,
-            CASE
-              WHEN commit_txid = ? THEN 'Commitment Inscribe'
-              WHEN btc_txid = ? THEN 'Commitment Reveal'
-              WHEN proof_commit_txid = ? THEN 'Proof Inscribe'
-              WHEN proof_txid = ? THEN 'Proof Reveal'
-            END AS tx_type
-          FROM commitments
-          WHERE commit_txid = ? OR btc_txid = ? OR proof_commit_txid = ? OR proof_txid = ?
-          LIMIT 1
-        `).get(vin.txid, vin.txid, vin.txid, vin.txid, vin.txid, vin.txid, vin.txid, vin.txid);
+        const origin = findTxBatch(vin.txid);
         if (origin) {
           if (!chain.from) chain.from = [];
           chain.from.push({ txid: vin.txid, batch_index: origin.batch_index, tx_type: origin.tx_type });

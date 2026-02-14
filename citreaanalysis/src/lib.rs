@@ -7,3 +7,4 @@ pub mod error;
 pub mod events;
 pub mod l2_counter;
 pub mod mempool_api;
+pub mod utils;
