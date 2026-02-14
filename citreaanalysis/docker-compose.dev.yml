@@ -1,0 +1,14 @@
+services:
+  dashboard:
+    build: ./web
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./data:/data:ro
+      - ./web/server.js:/app/server.js:ro
+      - ./web/public:/app/public:ro
+    environment:
+      - SPARK_MNEMONIC=${SPARK_MNEMONIC:-}
+      - SPARK_NETWORK=${SPARK_NETWORK:-MAINNET}
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+    restart: "no"

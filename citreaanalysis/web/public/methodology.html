@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Methodology — Citrea Dashboard</title>
+  <meta name="description" content="How the Citrea Dashboard calculates fees, tracks batches, and aggregates data.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+  <div class="about-wrap">
+    <a href="/" class="about-back">&larr; Back to dashboard</a>
+    <div class="about-card">
+      <h2>Methodology</h2>
+
+      <h3>Transaction identification</h3>
+      <p>
+        Citrea uses a Bitcoin <strong>commit/reveal</strong> pattern (similar to inscriptions)
+        for both batch commitments and proofs. A background daemon scans every Bitcoin block
+        for transactions sending to the known sequencer address
+        (<code>bc1pqq...dyvz5</code>) and prover address (<code>bc1ppu...947j</code>),
+        then decodes the batch data from the witness to extract the batch number, state root,
+        and L2 block range.
+      </p>
+
+      <h3>Fee calculation</h3>
+      <p>
+        Each transaction's fee is computed as
+        <code>sum(input&nbsp;values) &minus; sum(output&nbsp;values)</code>
+        in integer satoshis, using prevout data from Bitcoin Core.
+      </p>
+      <p>
+        The total settlement cost of each batch is the sum of four fees:
+      </p>
+      <ul>
+        <li><strong>Commitment reveal fee</strong> &mdash; the miner fee for the
+            transaction that posts the batch data on-chain.</li>
+        <li><strong>Commitment commit fee</strong> &mdash; the miner fee for the parent
+            transaction that creates the taproot output spent by the reveal.</li>
+        <li><strong>Proof reveal fee</strong> &mdash; the miner fee for the proof
+            transaction that posts the ZK proof. A single proof can cover multiple
+            batches; the fee is split equally across all covered batches.</li>
+        <li><strong>Proof commit fee</strong> &mdash; the miner fee for the proof's
+            parent (commit) transaction, split the same way.</li>
+      </ul>
+
+      <h3>Data sources</h3>
+      <p>
+        On-chain fees and commitment transactions are read directly from a
+        <strong>Bitcoin Core</strong> full node via <code>getblock</code> (verbosity&nbsp;3)
+        and <code>getrawtransaction</code>.
+      </p>
+      <p>
+        L2 data comes from the <strong>Citrea JSON-RPC</strong> at
+        <code>rpc.mainnet.citrea.xyz</code>:
+      </p>
+      <ul>
+        <li><code>citrea_syncStatus</code> &mdash; current L1 and L2 sync heights.</li>
+        <li><code>ledger_getSequencerCommitmentsOnSlotByNumber</code> &mdash;
+            sequencer commitments posted at a given L1 block height.</li>
+        <li><code>eth_getBlockTransactionCountByNumber</code> &mdash;
+            transaction count for each L2 block in a batch.</li>
+        <li><code>eth_getBlockByNumber</code> &mdash;
+            gas used and gas limit for each L2 block.</li>
+      </ul>
+      <p>
+        Proof-to-batch mappings are fetched from the <strong>Citrea Batch Explorer API</strong>
+        at <code>batch-explorer.mainnet.citrea.xyz/proofs</code>, which provides the
+        Bitcoin txid of each proof and the range of commitment indexes it covers.
+        The proof transaction is then verified on Bitcoin Core to compute its fee.
+      </p>
+
+      <p>
+        Built by <a href="https://yvrbtclabs.dev">YVR BTC Labs</a>.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    <span class="footer-dot"></span>
+    made by <a href="https://yvrbtclabs.dev">yvrbtclabs.dev</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="methodology.html">Methodology</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="about.html">About</a>
+  </footer>
+</body>
+</html>

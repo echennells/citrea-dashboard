@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — Citrea Dashboard</title>
+  <meta name="description" content="About the Citrea Dashboard — an independent analytics tool for the Citrea Bitcoin ZK-rollup.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+  <div class="about-wrap">
+    <a href="/" class="about-back">&larr; Back to dashboard</a>
+    <div class="about-card">
+      <h2>About this dashboard</h2>
+      <p>
+        This is an independent analytics dashboard for <a href="https://citrea.xyz">Citrea</a>,
+        a ZK-rollup that settles on Bitcoin. It is not affiliated with or endorsed by the Citrea team.
+      </p>
+
+      <h3>What it tracks</h3>
+      <p>
+        Every Citrea batch requires two Bitcoin transactions: a <strong>commitment</strong>
+        (the sequencer posts the L2 state root) and a <strong>proof</strong> (a ZK proof
+        verifying the state transition). This dashboard monitors every batch and tracks
+        transaction volume, gas utilization, Bitcoin settlement fees, proof timing, and
+        network anomalies.
+      </p>
+
+      <h3>Data sources</h3>
+      <p>
+        All data is derived from two primary sources. <strong>Bitcoin blocks</strong> are
+        read directly from a Bitcoin Core full node to discover commitment and proof
+        transactions and compute on-chain fees. <strong>Citrea's public APIs</strong>
+        (the Citrea RPC and batch explorer) provide L2 block data, transaction counts,
+        gas usage, and proof-to-batch mappings. The two are cross-referenced to build a
+        complete picture of each batch's lifecycle from L2 execution through L1 settlement.
+      </p>
+
+      <h3>How it works</h3>
+      <p>
+        A background daemon continuously scans new Bitcoin blocks for Citrea sequencer
+        and prover transactions, enriches each batch with L2 data from the Citrea RPC,
+        and stores everything in a local database. The web dashboard queries this database
+        and refreshes every 60 seconds.
+      </p>
+
+      <p>
+        Built by <a href="https://yvrbtclabs.dev">YVR BTC Labs</a>.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    <span class="footer-dot"></span>
+    made by <a href="https://yvrbtclabs.dev">yvrbtclabs.dev</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="methodology.html">Methodology</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="about.html">About</a>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citrea Dashboard — Bitcoin L2 Settlement Analytics</title>
+  <meta name="description" content="Live analytics for Citrea, the Bitcoin ZK-rollup. Track batch commitments, transaction throughput, gas utilization, and Bitcoin settlement fees in real time.">
+  <meta name="keywords" content="Citrea, Bitcoin, L2, rollup, ZK-rollup, analytics, dashboard, batch, settlement, gas, fees, sequencer">
+  <link rel="canonical" href="https://citrea.yvrbtclabs.dev/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Citrea Dashboard — Bitcoin L2 Settlement Analytics">
+  <meta property="og:description" content="Live analytics for Citrea, the Bitcoin ZK-rollup. Track batch commitments, transaction throughput, gas utilization, and Bitcoin settlement fees.">
+  <meta property="og:url" content="https://citrea.yvrbtclabs.dev/">
+  <meta property="og:site_name" content="Citrea Dashboard">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Citrea Dashboard — Bitcoin L2 Settlement Analytics">
+  <meta name="twitter:description" content="Live analytics for Citrea, the Bitcoin ZK-rollup. Batch commitments, gas utilization, and BTC settlement fees.">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Citrea Dashboard",
+    "url": "https://citrea.yvrbtclabs.dev/",
+    "description": "Live analytics dashboard for the Citrea Bitcoin ZK-rollup. Tracks batch commitments, L2 transaction throughput, gas utilization, and Bitcoin settlement fees.",
+    "applicationCategory": "Blockchain Analytics",
+    "operatingSystem": "Web",
+    "author": {
+      "@type": "Organization",
+      "name": "YVR BTC Labs",
+      "url": "https://yvrbtclabs.dev"
+    }
+  }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+  <script src="apexcharts.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1/build/qrcode.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="brand-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <rect x="2" y="2" width="24" height="24" rx="6" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 14h12M14 8v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Citrea Dashboard</h1>
+          <p class="header-sub">Bitcoin Settlement Analytics</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <p id="time-range"></p>
+        <p id="last-update"></p>
+      </div>
+    </div>
+  </header>
+
+  <section class="explainer">
+    <p><a href="https://citrea.xyz" class="explainer-link"><strong>Citrea</strong></a> is a ZK-rollup that settles on Bitcoin. Each batch requires two L1 transactions: a <strong>commitment</strong> (state root posted by the sequencer) and a <strong>proof</strong> (ZK proof verifying the state transition). This dashboard tracks every batch, including transaction volume, gas usage, and the Bitcoin fees for both commitments and proofs.</p>
+  </section>
+
+  <div id="proof-delay-banner" class="proof-delay-banner" style="display:none"></div>
+
+  <div class="top-row">
+    <div class="top-col">
+      <div class="section-header">
+        <h2 class="section-title">Network Overview</h2>
+        <div id="period-toggle" class="period-toggle">
+          <button class="period-btn active" data-period="all">All</button>
+          <button class="period-btn" data-period="7d">7d</button>
+          <button class="period-btn" data-period="24h">24h</button>
+          <button class="period-btn" data-period="4h">4h</button>
+        </div>
+        <label class="prelaunch-toggle" id="prelaunch-toggle">
+          <input type="checkbox" id="prelaunch-check">
+          <span class="toggle-slider"></span>
+          <span class="toggle-label">Include pre-launch</span>
+        </label>
+      </div>
+      <section id="cards" class="cards">
+        <div class="card">
+        <span class="card-label">Avg Fee/Tx</span>
+        <span class="card-value" id="card-fee-per-tx">—</span>
+        <span class="card-desc">Bitcoin cost per Citrea transaction</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Total Citrea Txs</span>
+        <span class="card-value" id="card-txs">—</span>
+        <span class="card-desc">Transactions settled on Bitcoin</span>
+      </div>
+      <div class="card">
+        <span class="card-label">L2 Txs/BTC Block</span>
+        <span class="card-value" id="card-util">—</span>
+        <span class="card-desc">Avg Citrea transactions per Bitcoin block</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Total L1 Fees</span>
+        <span class="card-value" id="card-fees">—</span>
+        <span class="card-desc">Commitments + proofs paid to Bitcoin miners</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Avg Txs/Batch</span>
+        <span class="card-value" id="card-avg-txs">—</span>
+        <span class="card-desc">Citrea transactions per sequencer commit</span>
+      </div>
+      <div class="card">
+        <span class="card-label">Avg Fee/Batch</span>
+        <span class="card-value" id="card-avg-fee">—</span>
+        <span class="card-desc">Bitcoin fee per sequencer commit</span>
+      </div>
+      </section>
+    </div>
+
+    <div class="top-col">
+      <h2 class="section-title">Noteworthy Events</h2>
+      <section class="events-section">
+        <div id="events-list" class="events-list">
+        <p class="events-loading">Scanning for anomalies...</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="charts">
+    <div class="chart-box">
+      <div class="chart-header">
+        <h2>Avg Fee / Tx (sats)</h2>
+        <a class="chart-popout" data-chart="fee-per-tx" href="chart.html?chart=fee-per-tx&period=24h" target="_blank" title="Open in new tab">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 7.5v3.25a1.25 1.25 0 0 1-1.25 1.25H3.25A1.25 1.25 0 0 1 2 10.75V4.25A1.25 1.25 0 0 1 3.25 3H6.5"/>
+            <path d="M9 2h3v3"/>
+            <path d="M5.5 8.5 12 2"/>
+          </svg>
+        </a>
+        <button class="log-toggle" data-chart="chart-fee-per-tx">LOG</button>
+        <div class="period-toggle" data-chart="chart-fee-per-tx">
+          <button class="period-btn" data-period="all">All</button>
+          <button class="period-btn" data-period="7d">7d</button>
+          <button class="period-btn active" data-period="24h">24h</button>
+          <button class="period-btn" data-period="4h">4h</button>
+        </div>
+      </div>
+      <div id="chart-fee-per-tx"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-header">
+        <h2>L1 Fee (sats) per Batch</h2>
+        <a class="chart-popout" data-chart="fees" href="chart.html?chart=fees&period=24h" target="_blank" title="Open in new tab">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 7.5v3.25a1.25 1.25 0 0 1-1.25 1.25H3.25A1.25 1.25 0 0 1 2 10.75V4.25A1.25 1.25 0 0 1 3.25 3H6.5"/>
+            <path d="M9 2h3v3"/>
+            <path d="M5.5 8.5 12 2"/>
+          </svg>
+        </a>
+        <div class="period-toggle" data-chart="chart-fees">
+          <button class="period-btn" data-period="all">All</button>
+          <button class="period-btn" data-period="7d">7d</button>
+          <button class="period-btn active" data-period="24h">24h</button>
+          <button class="period-btn" data-period="4h">4h</button>
+        </div>
+      </div>
+      <div id="chart-fees"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-header">
+        <h2>Citrea Tx Count per Batch</h2>
+        <a class="chart-popout" data-chart="tx-count" href="chart.html?chart=tx-count&period=24h" target="_blank" title="Open in new tab">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 7.5v3.25a1.25 1.25 0 0 1-1.25 1.25H3.25A1.25 1.25 0 0 1 2 10.75V4.25A1.25 1.25 0 0 1 3.25 3H6.5"/>
+            <path d="M9 2h3v3"/>
+            <path d="M5.5 8.5 12 2"/>
+          </svg>
+        </a>
+        <button class="log-toggle" data-chart="chart-tx">LOG</button>
+        <div class="period-toggle" data-chart="chart-tx">
+          <button class="period-btn" data-period="all">All</button>
+          <button class="period-btn" data-period="7d">7d</button>
+          <button class="period-btn active" data-period="24h">24h</button>
+          <button class="period-btn" data-period="4h">4h</button>
+        </div>
+      </div>
+      <div id="chart-tx"></div>
+    </div>
+    <div class="chart-box">
+      <div class="chart-header">
+        <h2>L2 Txs per BTC Block</h2>
+        <a class="chart-popout" data-chart="l2-throughput" href="chart.html?chart=l2-throughput&period=24h" target="_blank" title="Open in new tab">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 7.5v3.25a1.25 1.25 0 0 1-1.25 1.25H3.25A1.25 1.25 0 0 1 2 10.75V4.25A1.25 1.25 0 0 1 3.25 3H6.5"/>
+            <path d="M9 2h3v3"/>
+            <path d="M5.5 8.5 12 2"/>
+          </svg>
+        </a>
+        <div class="period-toggle" data-chart="chart-util">
+          <button class="period-btn" data-period="all">All</button>
+          <button class="period-btn" data-period="7d">7d</button>
+          <button class="period-btn active" data-period="24h">24h</button>
+          <button class="period-btn" data-period="4h">4h</button>
+        </div>
+      </div>
+      <div id="chart-util"></div>
+    </div>
+  </section>
+
+  <div class="txs-split">
+    <section class="table-section txs-pane">
+      <h2>Commitment Transactions</h2>
+      <div class="table-controls">
+        <button id="commit-btn-prev" disabled>&larr; Prev</button>
+        <span id="commit-table-info">&mdash;</span>
+        <button id="commit-btn-next">Next &rarr;</button>
+      </div>
+      <div class="table-wrap">
+        <table id="commit-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Batch</th>
+              <th>Transaction</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="table-section txs-pane">
+      <h2>Proof Transactions</h2>
+      <div class="table-controls">
+        <button id="proof-btn-prev" disabled>&larr; Prev</button>
+        <span id="proof-table-info">&mdash;</span>
+        <button id="proof-btn-next">Next &rarr;</button>
+      </div>
+      <div class="table-wrap">
+        <table id="proof-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Batch</th>
+              <th>Transaction</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <section class="table-section">
+    <h2>Batch Data</h2>
+    <div class="table-controls">
+      <button id="btn-prev" disabled>&larr; Prev</button>
+      <span id="table-info">—</span>
+      <button id="btn-next">Next &rarr;</button>
+      <button id="btn-unlock" class="btn-accent" onclick="openPaymentModal('full_batches')">Unlock Full History (100 sats)</button>
+      <button id="btn-csv" class="btn-accent" onclick="openPaymentModal('csv_download')">Download CSV (100 sats)</button>
+    </div>
+    <div id="free-banner" class="free-banner"></div>
+    <div class="table-wrap">
+      <table id="batch-table">
+        <thead>
+          <tr>
+            <th>Batch</th>
+            <th>L1 Height</th>
+            <th>L2 Blocks</th>
+            <th>L2 Txs</th>
+            <th>Gas Used</th>
+            <th>Gas Limit</th>
+            <th>Util %</th>
+            <th>Commit Fee</th>
+            <th>Proof Fee</th>
+            <th>Proof Block</th>
+            <th>Delta</th>
+            <th>Total L1 Fee</th>
+            <th>Fee/Tx</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Payment Modal -->
+  <div id="payment-modal" class="modal-overlay">
+    <div class="modal">
+      <button class="modal-close" onclick="closePaymentModal()">&times;</button>
+      <h3 id="modal-title">Lightning Payment</h3>
+      <p id="modal-desc">Pay 100 sats to unlock this feature.</p>
+      <div class="invoice-box">
+        <canvas id="modal-qr"></canvas>
+        <div id="modal-bolt11" class="bolt11-hidden"></div>
+        <button class="btn-copy" onclick="copyBolt11()">Copy Invoice</button>
+      </div>
+      <div id="modal-status" class="modal-status">
+        <span class="spinner"></span> Waiting for payment...
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span class="footer-dot"></span>
+    made by <a href="https://yvrbtclabs.dev">yvrbtclabs.dev</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="methodology.html">Methodology</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="about.html">About</a>
+  </footer>
+
+  <script src="chart-lib.js?v=3" defer></script>
+  <script src="app.js?v=3" defer></script>
+</body>
+</html>

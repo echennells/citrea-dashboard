@@ -1,0 +1,8 @@
+target/
+web/node_modules/
+web/.next/
+data/
+citrea.db
+citrea.db-shm
+citrea.db-wal
+.git/

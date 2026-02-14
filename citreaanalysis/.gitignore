@@ -1,0 +1,7 @@
+/target
+web/node_modules/
+.env
+web/screenshots/
+web/test-results/
+test-results/
+data/*.db*

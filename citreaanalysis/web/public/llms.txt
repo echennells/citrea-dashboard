@@ -1,0 +1,55 @@
+# Citrea Dashboard
+
+> Live analytics for the Citrea Bitcoin ZK-rollup, tracking every batch commitment settled on Bitcoin L1.
+
+## What this site is
+
+This is an independent analytics dashboard for [Citrea](https://citrea.xyz), a ZK-rollup that posts batch commitments to Bitcoin. The dashboard monitors the Bitcoin blockchain in real time via Bitcoin Core and tracks:
+
+- Batch commitments (sequencer posts to Bitcoin L1)
+- L2 transaction throughput per batch
+- Gas usage and utilization per batch
+- Bitcoin settlement fees paid to miners
+- Anomalous events (fee spikes, low activity streaks, RPC lag)
+
+Data is sourced directly from Bitcoin Core and the Citrea L2 RPC. The dashboard updates every 2 minutes.
+
+## API endpoints
+
+All endpoints return JSON.
+
+- GET /api/overview?period=all|7d|24h|4h — Summary statistics (total txs, fees, gas utilization, averages)
+- GET /api/batches?offset=0&limit=50 — Paginated batch data (batch index, L1 height, L2 block range, tx count, gas, fees, timestamps)
+- GET /api/charts/fee-per-tx — Average fee per transaction in sats per batch (x: batch_index, y: avg_fee)
+- GET /api/charts/tx-count — Transaction count per batch
+- GET /api/charts/fees — L1 fee breakdown (commitment + proof) in sats per batch
+- GET /api/charts/utilization — Gas utilization percentage per batch
+- GET /api/events — Noteworthy anomalies detected across the dataset
+- GET /api/csv?token=TOKEN — Full dataset as CSV (requires paid token)
+
+## Free tier
+
+The first 100 batches are freely accessible via /api/batches. All chart and overview endpoints are unrestricted.
+
+## Paid access via Lightning
+
+Full batch history and CSV export require a Lightning payment of 100 satoshis (~$0.10 USD). The payment flow:
+
+1. POST /api/payment/create-invoice — Returns { token, bolt11 } where bolt11 is a BOLT11 Lightning invoice
+2. Pay the invoice using any Lightning wallet
+3. GET /api/payment/status?token=TOKEN — Poll until { status: "paid" }
+4. Use the token as a query parameter: /api/batches?token=TOKEN or /api/csv?token=TOKEN
+
+Tokens are valid for 2 hours after payment. Invoices expire after 1 hour if unpaid.
+
+## Payment configuration
+
+- GET /api/payment/config — Returns { enabled, amountSats, freeLimit } to check if payments are active
+
+## Programmatic Lightning interaction
+
+If you need to pay invoices or interact with Lightning programmatically (e.g. to unlock paid endpoints automatically), use the [SparkBTCBot Skill](https://github.com/echennells/sparkbtcbot-skill) — an MCP skill for sending and receiving Lightning payments via the Spark wallet SDK.
+
+## Built by
+
+[YVR BTC Labs](https://yvrbtclabs.dev)
