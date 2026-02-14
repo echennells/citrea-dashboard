@@ -97,12 +97,13 @@ setInterval(() => {
   }
 }, CACHE_TTL_MS);
 
-function cached(keyFn, handler) {
+function cached(keyFn, handler, cacheTTL = 300) {
   return (req, res) => {
     const key = keyFn(req);
     const entry = responseCache.get(key);
     if (entry && Date.now() - entry.ts < CACHE_TTL_MS) {
       res.setHeader('X-Cache', 'HIT');
+      res.setHeader('Cache-Control', `public, max-age=${cacheTTL}`);
       return res.json(entry.data);
     }
     const origJson = res.json.bind(res);
@@ -114,6 +115,7 @@ function cached(keyFn, handler) {
       }
       responseCache.set(key, { data, ts: Date.now() });
       res.setHeader('X-Cache', 'MISS');
+      res.setHeader('Cache-Control', `public, max-age=${cacheTTL}`);
       return origJson(data);
     };
     handler(req, res);
@@ -158,8 +160,12 @@ app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
   immutable: false,
   setHeaders(res, filePath) {
-    if (filePath.endsWith('.html') || filePath.endsWith('.js') || filePath.endsWith('.css')) {
-      res.setHeader('Cache-Control', 'no-cache');
+    if (filePath.endsWith('.html')) {
+      // HTML files: cache but revalidate
+      res.setHeader('Cache-Control', 'public, max-age=300, must-revalidate');
+    } else if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      // JS/CSS: cache for 1 hour
+      res.setHeader('Cache-Control', 'public, max-age=3600');
     }
   }
 }));
