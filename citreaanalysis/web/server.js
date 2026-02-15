@@ -740,6 +740,122 @@ app.get('/api/events', cached(() => 'events', (_req, res) => {
   res.json(rows);
 }));
 
+// --- Internal Sync API (for satellite servers) ---
+
+const SYNC_AUTH_TOKEN = process.env.SYNC_AUTH_TOKEN || '';
+const IS_PRIMARY = process.env.IS_PRIMARY === 'true';
+
+// Middleware to authenticate internal requests
+function authenticateInternal(req, res, next) {
+  if (!SYNC_AUTH_TOKEN) {
+    return res.status(500).json({ error: 'SYNC_AUTH_TOKEN not configured' });
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.substring(7);
+  if (token !== SYNC_AUTH_TOKEN) {
+    return res.status(403).json({ error: 'Invalid token' });
+  }
+
+  next();
+}
+
+// Compute version hash from database state
+function computeDataVersion() {
+  try {
+    // Use max batch_index + count as version indicator
+    const { maxBatch, count } = db.prepare(`
+      SELECT
+        COALESCE(MAX(batch_index), 0) as maxBatch,
+        COUNT(*) as count
+      FROM commitments
+    `).get();
+
+    // Create hash from max batch and count
+    const versionString = `${maxBatch}-${count}`;
+    return crypto.createHash('md5').update(versionString).digest('hex').substring(0, 8);
+  } catch (err) {
+    console.error('Error computing version:', err);
+    return crypto.randomBytes(4).toString('hex');
+  }
+}
+
+// Build complete dataset for sync
+function buildFullDataset() {
+  try {
+    const commitments = db.prepare('SELECT * FROM commitments ORDER BY batch_index').all();
+    const sequencer_txs = db.prepare('SELECT * FROM sequencer_txs ORDER BY btc_block_height').all();
+    const stats_snapshots = db.prepare('SELECT * FROM stats_snapshots ORDER BY timestamp DESC LIMIT 1000').all();
+    const events = db.prepare('SELECT * FROM events ORDER BY created_at DESC').all();
+    const sync_state = db.prepare('SELECT * FROM sync_state').all();
+
+    return {
+      commitments,
+      sequencer_txs,
+      stats_snapshots,
+      events,
+      sync_state: sync_state.reduce((obj, row) => {
+        obj[row.key] = row.value;
+        return obj;
+      }, {})
+    };
+  } catch (err) {
+    console.error('Error building dataset:', err);
+    throw err;
+  }
+}
+
+// Internal sync endpoint for satellites
+app.get('/internal/sync', authenticateInternal, (req, res) => {
+  try {
+    const currentVersion = computeDataVersion();
+
+    // Check If-None-Match for conditional request
+    const clientVersion = req.headers['if-none-match'];
+    if (clientVersion === currentVersion) {
+      res.set('ETag', currentVersion);
+      return res.status(304).end();
+    }
+
+    // Build and return full dataset
+    const data = buildFullDataset();
+    const payload = {
+      version: currentVersion,
+      generated_at: new Date().toISOString(),
+      data
+    };
+
+    res.set('ETag', currentVersion);
+    res.set('Cache-Control', 'no-store'); // Don't cache this endpoint
+    res.json(payload);
+
+    console.log(`[SYNC] Sent full dataset: version=${currentVersion}, ` +
+      `commitments=${data.commitments.length}, txs=${data.sequencer_txs.length}`);
+  } catch (err) {
+    console.error('[SYNC] Error:', err);
+    res.status(500).json({ error: 'Failed to build sync payload' });
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  try {
+    const { count } = db.prepare('SELECT COUNT(*) as count FROM commitments').get();
+    res.json({
+      status: 'ok',
+      mode: IS_PRIMARY ? 'primary' : 'satellite',
+      commitments: count,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(503).json({ status: 'error', error: err.message });
+  }
+});
+
 // --- Startup ---
 
 (async () => {
