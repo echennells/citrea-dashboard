@@ -7,6 +7,16 @@ window.CitreaCharts = (function () {
       : Number(n).toLocaleString() + ' sats');
   };
 
+  function getThemeColors() {
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    return {
+      grid: isDark ? '#252a38' : '#e5e7eb',
+      label: isDark ? '#8892a4' : '#64748b',
+      tooltip: isDark ? 'dark' : 'light',
+      font: "'Outfit', sans-serif"
+    };
+  }
+
   function getLaunchAnnotation(showPrelaunch, launchBatchIndex) {
     if (!showPrelaunch || !launchBatchIndex) return {};
     return {
@@ -43,20 +53,21 @@ window.CitreaCharts = (function () {
     var height = opts.height || 260;
     var annotation = getLaunchAnnotation(opts.showPrelaunch, opts.launchBatchIndex);
     var isBar = type === 'bar';
+    var tc = getThemeColors();
     var config = {
       chart: {
         type: isBar ? 'bar' : 'area',
         height: height,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: tc.font,
         toolbar: { show: false },
         animations: { enabled: true, easing: 'easeinout', speed: 400 }
       },
       series: [{ name: label, data: xyData }],
       xaxis: {
         type: 'numeric',
-        title: { text: 'Batch Index', style: { fontSize: '11px', color: '#6b7280' } },
+        title: { text: 'Batch Index', style: { fontSize: '11px', color: tc.label } },
         labels: {
-          style: { fontSize: '10px', colors: '#6b7280' },
+          style: { fontSize: '10px', colors: tc.label },
           formatter: function (v) { return v != null ? Math.round(v).toLocaleString() : ''; }
         },
         tickAmount: 8
@@ -65,9 +76,9 @@ window.CitreaCharts = (function () {
         logarithmic: !!logScale,
         min: opts.yMin != null ? opts.yMin : undefined,
         max: opts.yMax != null ? opts.yMax : undefined,
-        title: { text: label, style: { fontSize: '11px', color: '#6b7280' } },
+        title: { text: label, style: { fontSize: '11px', color: tc.label } },
         labels: {
-          style: { fontSize: '10px', colors: '#6b7280' },
+          style: { fontSize: '10px', colors: tc.label },
           formatter: opts.yFormatter || function (v) { return v != null ? Number(v).toLocaleString() : ''; }
         }
       },
@@ -81,12 +92,12 @@ window.CitreaCharts = (function () {
       stroke: isBar ? { width: 0 } : { curve: 'smooth', width: 2 },
       dataLabels: { enabled: false },
       grid: {
-        borderColor: '#e5e7eb',
+        borderColor: tc.grid,
         strokeDashArray: 3,
         xaxis: { lines: { show: false } }
       },
       tooltip: {
-        theme: 'light',
+        theme: tc.tooltip,
         y: { formatter: function (v) { return fmt(v); } }
       },
       plotOptions: isBar ? { bar: { borderRadius: 3, columnWidth: '60%' } } : {}
@@ -111,12 +122,13 @@ window.CitreaCharts = (function () {
     var annotation = getLaunchAnnotation(opts.showPrelaunch, opts.launchBatchIndex);
     var commitData = data.map(function (d) { return { x: d.x, y: d.commitment_fee || 0 }; });
     var proofData = data.map(function (d) { return { x: d.x, y: d.proof_fee || 0 }; });
+    var tc = getThemeColors();
     var config = {
       chart: {
         type: 'bar',
         height: height,
         stacked: true,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: tc.font,
         toolbar: { show: false },
         animations: { enabled: false }
       },
@@ -127,18 +139,18 @@ window.CitreaCharts = (function () {
       colors: ['#f59e0b', '#3b82f6'],
       xaxis: {
         type: 'numeric',
-        title: { text: 'Batch Index', style: { fontSize: '11px', color: '#6b7280' } },
+        title: { text: 'Batch Index', style: { fontSize: '11px', color: tc.label } },
         labels: {
-          style: { fontSize: '10px', colors: '#6b7280' },
+          style: { fontSize: '10px', colors: tc.label },
           formatter: function (v) { return v != null ? Math.round(v).toLocaleString() : ''; }
         },
         tickAmount: 8
       },
       yaxis: {
         logarithmic: !!logScale,
-        title: { text: 'L1 Fee (sats)', style: { fontSize: '11px', color: '#6b7280' } },
+        title: { text: 'L1 Fee (sats)', style: { fontSize: '11px', color: tc.label } },
         labels: {
-          style: { fontSize: '10px', colors: '#6b7280' },
+          style: { fontSize: '10px', colors: tc.label },
           formatter: function (v) { return v != null ? Number(v).toLocaleString() : ''; }
         }
       },
@@ -146,12 +158,12 @@ window.CitreaCharts = (function () {
       stroke: { width: 0 },
       dataLabels: { enabled: false },
       grid: {
-        borderColor: '#e5e7eb',
+        borderColor: tc.grid,
         strokeDashArray: 3,
         xaxis: { lines: { show: false } }
       },
       tooltip: {
-        theme: 'light',
+        theme: tc.tooltip,
         y: { formatter: function (v) { return fmt(v) + ' sats'; } }
       },
       plotOptions: { bar: { borderRadius: 3, columnWidth: '60%' } },
@@ -159,12 +171,12 @@ window.CitreaCharts = (function () {
         position: 'top',
         horizontalAlign: 'right',
         fontSize: '11px',
-        labels: { colors: '#6b7280' }
+        labels: { colors: tc.label }
       }
     };
     if (annotation.annotations) config.annotations = annotation.annotations;
     return config;
   }
 
-  return { fmt: fmt, fmtSats: fmtSats, getLaunchAnnotation: getLaunchAnnotation, makeChartOpts: makeChartOpts, makeFeesChartOpts: makeFeesChartOpts };
+  return { fmt: fmt, fmtSats: fmtSats, getLaunchAnnotation: getLaunchAnnotation, makeChartOpts: makeChartOpts, makeFeesChartOpts: makeFeesChartOpts, getThemeColors: getThemeColors };
 })();

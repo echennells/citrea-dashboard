@@ -5,6 +5,36 @@
 
   const REFRESH_MS = 60_000;
 
+  // --- Theme toggle ---
+  const THEME_KEY = 'citrea_theme';
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', function () {
+      const current = document.documentElement.getAttribute('data-theme') || 'light';
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
+      // Re-render charts with new theme colors
+      Object.keys(charts).forEach(function (id) {
+        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+      });
+      refreshAll();
+    });
+  }
+
+  // --- Floating CTA scroll visibility ---
+  const ghCta = document.getElementById('github-cta');
+  const donateCta = document.getElementById('mobile-donate-cta');
+  let ctaVisible = false;
+  window.addEventListener('scroll', function () {
+    const show = window.scrollY > 250;
+    if (show !== ctaVisible) {
+      ctaVisible = show;
+      if (ghCta) ghCta.classList.toggle('visible', show);
+      if (donateCta) donateCta.classList.toggle('visible', show);
+    }
+  }, { passive: true });
+
   // ApexCharts instances keyed by element ID
   const charts = {};
 
@@ -41,7 +71,7 @@
 
   async function initPaymentConfig() {
     try {
-      const cfg = await fetch('/api/payment/config').then((r) => r.json());
+      const cfg = await fetch('api/payment/config').then((r) => r.json());
       paymentEnabled = cfg.enabled;
       paymentAmountSats = cfg.amountSats;
       paymentFreeLimit = cfg.freeLimit;
@@ -53,7 +83,7 @@
       const token = getStoredToken();
 
       if (token) {
-        const st = await fetch(`/api/payment/status?token=${encodeURIComponent(token)}`).then((r) => r.json());
+        const st = await fetch(`api/payment/status?token=${encodeURIComponent(token)}`).then((r) => r.json());
         if (st.status === 'paid') {
           // Already paid — hide unlock, show direct CSV download
           btnCsv.textContent = 'Download CSV';
@@ -91,7 +121,7 @@
     modal.classList.add('active');
 
     try {
-      const resp = await fetch('/api/payment/create-invoice', {
+      const resp = await fetch('api/payment/create-invoice', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -102,6 +132,7 @@
       }
       const { token, bolt11 } = await resp.json();
       bolt11El.textContent = bolt11;
+      document.getElementById('payment-open-wallet').href = `lightning:${bolt11}`;
       const qrCanvas = document.getElementById('modal-qr');
       try {
         await QRCode.toCanvas(qrCanvas, bolt11.toUpperCase(), { width: 220, margin: 2 });
@@ -114,12 +145,11 @@
       if (currentPollInterval) clearInterval(currentPollInterval);
       currentPollInterval = setInterval(async () => {
         try {
-          const st = await fetch(`/api/payment/status?token=${encodeURIComponent(token)}`).then((r) => r.json());
+          const st = await fetch(`api/payment/status?token=${encodeURIComponent(token)}`).then((r) => r.json());
           if (st.status === 'paid') {
             clearInterval(currentPollInterval);
             currentPollInterval = null;
             setStoredToken(token);
-            statusEl.textContent = 'Payment received!';
 
             // Unlock everything
             document.getElementById('btn-unlock').style.display = 'none';
@@ -133,7 +163,7 @@
               triggerCsvDownload(token);
             }
 
-            setTimeout(() => closePaymentModal(), 1500);
+            showPaymentSuccess();
           } else if (st.status === 'expired') {
             clearInterval(currentPollInterval);
             currentPollInterval = null;
@@ -155,7 +185,33 @@
       clearInterval(currentPollInterval);
       currentPollInterval = null;
     }
+    // Clean up success screen if present
+    const successDiv = document.getElementById('payment-step-success');
+    if (successDiv) successDiv.remove();
+    document.querySelector('#payment-modal .invoice-box').style.display = '';
+    document.getElementById('modal-status').style.display = '';
+    document.getElementById('modal-title').style.display = '';
+    document.getElementById('modal-desc').style.display = '';
   };
+
+  function showPaymentSuccess() {
+    const modal = document.querySelector('#payment-modal .modal');
+    document.querySelector('#payment-modal .invoice-box').style.display = 'none';
+    document.getElementById('modal-status').style.display = 'none';
+    document.getElementById('modal-title').style.display = 'none';
+    document.getElementById('modal-desc').style.display = 'none';
+
+    const successDiv = document.createElement('div');
+    successDiv.id = 'payment-step-success';
+    successDiv.className = 'donate-success';
+    successDiv.innerHTML = `
+      <div class="donate-bolt">&#9889;</div>
+      <div class="donate-thanks-title">Payment received!</div>
+      <div class="donate-thanks-msg">Full batch history and CSV export are now unlocked.</div>
+      <button class="donate-close-btn" onclick="closePaymentModal()">Close</button>
+    `;
+    modal.appendChild(successDiv);
+  }
 
   window.copyBolt11 = function () {
     const text = document.getElementById('modal-bolt11').textContent;
@@ -170,7 +226,7 @@
 
   function triggerCsvDownload(token) {
     const a = document.createElement('a');
-    a.href = `/api/csv?token=${encodeURIComponent(token)}`;
+    a.href = `api/csv?token=${encodeURIComponent(token)}`;
     a.download = 'citrea_batches.csv';
     document.body.appendChild(a);
     a.click();
@@ -390,7 +446,7 @@
 
   async function refreshOverview() {
     try {
-      const ov = await fetch(`/api/overview?period=${overviewPeriod}&prelaunch=${prelaunchParam()}`).then((r) => r.json());
+      const ov = await fetch(`api/overview?period=${overviewPeriod}&prelaunch=${prelaunchParam()}`).then((r) => r.json());
       if (ov.launch_batch_index != null) launchBatchIndex = ov.launch_batch_index;
       const empty = !ov.total_batches;
       const pend = 'pending';
@@ -454,7 +510,7 @@
 
   async function refreshEvents() {
     try {
-      const events = await fetch('/api/events').then((r) => r.json());
+      const events = await fetch('api/events').then((r) => r.json());
       const el = document.getElementById('events-list');
       el.textContent = '';
       if (events.length === 0) {
@@ -503,10 +559,10 @@
     try {
       const pl = prelaunchParam();
       const [feePerTxResp, txResp, feesResp, utilResp] = await Promise.all([
-        fetch(`/api/charts/fee-per-tx?period=${chartPeriods['chart-fee-per-tx']}&prelaunch=${pl}`).then((r) => r.json()),
-        fetch(`/api/charts/tx-count?period=${chartPeriods['chart-tx']}&prelaunch=${pl}`).then((r) => r.json()),
-        fetch(`/api/charts/fees?period=${chartPeriods['chart-fees']}&prelaunch=${pl}`).then((r) => r.json()),
-        fetch(`/api/charts/l2-throughput?period=${chartPeriods['chart-util']}&prelaunch=${pl}`).then((r) => r.json())
+        fetch(`api/charts/fee-per-tx?period=${chartPeriods['chart-fee-per-tx']}&prelaunch=${pl}`).then((r) => r.json()),
+        fetch(`api/charts/tx-count?period=${chartPeriods['chart-tx']}&prelaunch=${pl}`).then((r) => r.json()),
+        fetch(`api/charts/fees?period=${chartPeriods['chart-fees']}&prelaunch=${pl}`).then((r) => r.json()),
+        fetch(`api/charts/l2-throughput?period=${chartPeriods['chart-util']}&prelaunch=${pl}`).then((r) => r.json())
       ]);
       // Update launch batch index from any response
       if (feePerTxResp.launch_batch_index != null) launchBatchIndex = feePerTxResp.launch_batch_index;
@@ -543,7 +599,7 @@
     try {
       const token = getStoredToken();
       const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-      const d = await fetch(`/api/batches?offset=${offset}&limit=${PAGE}${tokenParam}&prelaunch=${prelaunchParam()}`)
+      const d = await fetch(`api/batches?offset=${offset}&limit=${PAGE}${tokenParam}&prelaunch=${prelaunchParam()}`)
         .then((r) => r.json());
       tbody.innerHTML = '';
       for (const r of d.rows) {
@@ -586,6 +642,48 @@
   btnPrev.addEventListener('click', () => { offset = Math.max(0, offset - PAGE); loadTable(); });
   btnNext.addEventListener('click', () => { offset += PAGE; loadTable(); });
 
+  // --- Transactions split panes ---
+  const TXS_PAGE = 10;
+
+  function makeTxPane(prefix, typeFilter) {
+    const txTbody = document.querySelector(`#${prefix}-table tbody`);
+    const txInfo = document.getElementById(`${prefix}-table-info`);
+    const txBtnPrev = document.getElementById(`${prefix}-btn-prev`);
+    const txBtnNext = document.getElementById(`${prefix}-btn-next`);
+    let txOffset = 0;
+
+    async function load() {
+      try {
+        const d = await fetch(`api/transactions?offset=${txOffset}&limit=${TXS_PAGE}&prelaunch=${prelaunchParam()}&type=${typeFilter}`)
+          .then(r => r.json());
+        txTbody.innerHTML = '';
+        for (const r of d.rows) {
+          const shortTxid = r.txid.slice(0, 8) + '\u2026' + r.txid.slice(-8);
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            `<td>${r.tx_type}</td>` +
+            `<td>${r.batch_index}</td>` +
+            `<td><a href="tx.html?txid=${r.txid}" target="_blank" rel="noopener" class="tx-link">${shortTxid}</a></td>`;
+          txTbody.appendChild(tr);
+        }
+        const from = d.total === 0 ? 0 : txOffset + 1;
+        const to = Math.min(txOffset + TXS_PAGE, d.total);
+        txInfo.textContent = `${from}\u2013${to} of ${d.total}`;
+        txBtnPrev.disabled = txOffset === 0;
+        txBtnNext.disabled = txOffset + TXS_PAGE >= d.total;
+      } catch (e) {
+        console.error(`Failed to load ${prefix} transactions`, e);
+      }
+    }
+
+    txBtnPrev.addEventListener('click', () => { txOffset = Math.max(0, txOffset - TXS_PAGE); load(); });
+    txBtnNext.addEventListener('click', () => { txOffset += TXS_PAGE; load(); });
+    return { load };
+  }
+
+  const commitPane = makeTxPane('commit', 'commit');
+  const proofPane = makeTxPane('proof', 'proof');
+
   // --- Initial load + live refresh ---
 
   async function refreshAll() {
@@ -593,10 +691,12 @@
       refreshOverview(),
       refreshEvents(),
       refreshCharts(),
-      loadTable()
+      loadTable(),
+      commitPane.load(),
+      proofPane.load()
     ]);
     const now = new Date().toLocaleTimeString();
-    document.getElementById('last-update').textContent = `Last update: ${now}`;
+    document.getElementById('last-update').textContent = `Last Updated: ${now}`;
   }
 
   // Init payment config once at startup (not on refresh interval)
@@ -604,4 +704,174 @@
 
   refreshAll();
   setInterval(refreshAll, REFRESH_MS);
+
+  // --- Donate modal ---
+  let btcPriceUsd = null;
+  let donatePollInterval = null;
+
+  async function fetchBtcPrice() {
+    try {
+      const resp = await fetch('https://mempool.space/api/v1/prices').then(r => r.json());
+      btcPriceUsd = resp.USD;
+    } catch (e) {
+      console.error('Failed to fetch BTC price', e);
+    }
+  }
+
+  function usdToSats(usd) {
+    if (!btcPriceUsd) return null;
+    return Math.round((usd / btcPriceUsd) * 1e8);
+  }
+
+  window.openDonateModal = function () {
+    const modal = document.getElementById('donate-modal');
+    document.getElementById('donate-step-amount').style.display = '';
+    document.getElementById('donate-step-invoice').style.display = 'none';
+    document.getElementById('donate-custom-input').style.display = 'none';
+    document.getElementById('donate-sats-preview').textContent = '';
+    document.querySelectorAll('.donate-amt').forEach(b => b.classList.remove('selected'));
+    modal.classList.add('active');
+    if (!btcPriceUsd) fetchBtcPrice();
+  };
+
+  window.closeDonateModal = function () {
+    document.getElementById('donate-modal').classList.remove('active');
+    if (donatePollInterval) {
+      clearInterval(donatePollInterval);
+      donatePollInterval = null;
+    }
+  };
+
+  // Amount button clicks
+  document.querySelectorAll('.donate-amt[data-usd]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      document.querySelectorAll('.donate-amt').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      document.getElementById('donate-custom-input').style.display = 'none';
+      const usd = parseInt(btn.dataset.usd, 10);
+      const sats = usdToSats(usd);
+      if (!sats) {
+        document.getElementById('donate-sats-preview').textContent = 'Fetching BTC price...';
+        await fetchBtcPrice();
+      }
+      const finalSats = usdToSats(usd);
+      if (!finalSats) {
+        document.getElementById('donate-sats-preview').textContent = 'Could not fetch BTC price. Try custom sats.';
+        return;
+      }
+      document.getElementById('donate-sats-preview').textContent = `$${usd} ≈ ${finalSats.toLocaleString()} sats`;
+      createDonateInvoice(finalSats);
+    });
+  });
+
+  // Custom button
+  document.getElementById('donate-custom-btn').addEventListener('click', () => {
+    document.querySelectorAll('.donate-amt').forEach(b => b.classList.remove('selected'));
+    document.getElementById('donate-custom-btn').classList.add('selected');
+    document.getElementById('donate-custom-input').style.display = 'flex';
+    document.getElementById('donate-sats-preview').textContent = '';
+    document.getElementById('donate-custom-dollars').focus();
+  });
+
+  document.getElementById('donate-custom-go').addEventListener('click', async () => {
+    const usd = parseFloat(document.getElementById('donate-custom-dollars').value);
+    if (!usd || usd < 0.01) return;
+    let sats = usdToSats(usd);
+    if (!sats) {
+      document.getElementById('donate-sats-preview').textContent = 'Fetching BTC price...';
+      await fetchBtcPrice();
+      sats = usdToSats(usd);
+    }
+    if (!sats) {
+      document.getElementById('donate-sats-preview').textContent = 'Could not fetch BTC price.';
+      return;
+    }
+    document.getElementById('donate-sats-preview').textContent = `$${usd.toFixed(2)} ≈ ${sats.toLocaleString()} sats`;
+    createDonateInvoice(sats);
+  });
+
+  document.getElementById('donate-custom-dollars').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('donate-custom-go').click();
+  });
+
+  async function createDonateInvoice(amountSats) {
+    document.getElementById('donate-step-amount').style.display = 'none';
+    document.getElementById('donate-step-invoice').style.display = '';
+    const statusEl = document.getElementById('donate-status');
+    const bolt11El = document.getElementById('donate-bolt11');
+    statusEl.innerHTML = '<span class="spinner"></span> Creating invoice...';
+    bolt11El.textContent = '';
+
+    try {
+      const resp = await fetch('api/donate/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountSats })
+      });
+      if (!resp.ok) {
+        statusEl.textContent = 'Failed to create invoice. Try again.';
+        return;
+      }
+      const { token, bolt11 } = await resp.json();
+      bolt11El.textContent = bolt11;
+      document.getElementById('donate-open-wallet').href = `lightning:${bolt11}`;
+      const qrCanvas = document.getElementById('donate-qr');
+      try {
+        await QRCode.toCanvas(qrCanvas, bolt11.toUpperCase(), { width: 220, margin: 2 });
+      } catch (qrErr) { console.error('QR error', qrErr); }
+      statusEl.innerHTML = '<span class="spinner"></span> Waiting for payment...';
+
+      if (donatePollInterval) clearInterval(donatePollInterval);
+      donatePollInterval = setInterval(async () => {
+        try {
+          const st = await fetch(`api/payment/status?token=${encodeURIComponent(token)}`).then(r => r.json());
+          if (st.status === 'paid') {
+            clearInterval(donatePollInterval);
+            donatePollInterval = null;
+            showDonateSuccess();
+          } else if (st.status === 'expired') {
+            clearInterval(donatePollInterval);
+            donatePollInterval = null;
+            statusEl.textContent = 'Invoice expired. Close and try again.';
+          }
+        } catch (err) { console.error('Donate poll error', err); }
+      }, 3000);
+    } catch (err) {
+      statusEl.textContent = 'Error creating invoice. Try again.';
+      console.error('Donate invoice error', err);
+    }
+  }
+
+  function showDonateSuccess() {
+    const modal = document.querySelector('#donate-modal .donate-modal');
+    const stepInvoice = document.getElementById('donate-step-invoice');
+    stepInvoice.style.display = 'none';
+
+    let successDiv = document.getElementById('donate-step-success');
+    if (!successDiv) {
+      successDiv = document.createElement('div');
+      successDiv.id = 'donate-step-success';
+      successDiv.className = 'donate-step donate-success';
+      modal.appendChild(successDiv);
+    }
+    successDiv.innerHTML = `
+      <div class="donate-bolt">&#9889;</div>
+      <div class="donate-thanks-title">Payment received!</div>
+      <div class="donate-thanks-msg">Thank you for supporting Citrea Dashboard.<br>You're helping keep this project alive.</div>
+      <button class="donate-close-btn" onclick="closeDonateModal()">Close</button>
+    `;
+    successDiv.style.display = '';
+  }
+
+  window.copyDonateBolt11 = function () {
+    const text = document.getElementById('donate-bolt11').textContent;
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.querySelector('#donate-step-invoice .btn-copy');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    }).catch(() => {});
+  };
+
 })();

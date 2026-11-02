@@ -55,6 +55,26 @@ const COMMITMENT_FEE_SUM = 'COALESCE(SUM(btc_fee_sats),0) + COALESCE(SUM(commit_
 const PROOF_FEE_SUM      = 'COALESCE(SUM(proof_fee_sats),0) + COALESCE(SUM(proof_commit_fee_sats),0)';
 const TOTAL_FEE_SUM      = `${COMMITMENT_FEE_SUM} + ${PROOF_FEE_SUM}`;
 
+const FIND_TX_BATCH_SQL = `
+  SELECT batch_index,
+    CASE
+      WHEN commit_txid = ? THEN 'Commitment Inscribe'
+      WHEN btc_txid = ? THEN 'Commitment Reveal'
+      WHEN proof_commit_txid = ? THEN 'Proof Inscribe'
+      WHEN proof_txid = ? THEN 'Proof Reveal'
+    END AS tx_type
+  FROM commitments
+  WHERE commit_txid = ? OR btc_txid = ? OR proof_commit_txid = ? OR proof_txid = ?
+  LIMIT 1
+`;
+
+function findTxBatch(txid) {
+  return db.prepare(FIND_TX_BATCH_SQL).get(
+    txid, txid, txid, txid,
+    txid, txid, txid, txid
+  );
+}
+
 function periodToMinTime(period, includePrelaunch) {
   const now = Math.floor(Date.now() / 1000);
   if (period === '4h') return Math.max(now - 14400, MAINNET_TS);
@@ -277,6 +297,38 @@ app.get('/api/payment/status', async (req, res) => {
   }
 
   res.json({ status: 'pending' });
+});
+
+// --- Donation endpoint ---
+
+// POST /api/donate/create-invoice  { amountSats: number }
+app.post('/api/donate/create-invoice', rateLimit(60_000, 10), async (req, res) => {
+  if (!isPaymentsEnabled()) {
+    return res.status(503).json({ error: 'Payments not configured' });
+  }
+  const amountSats = parseInt(req.body.amountSats, 10);
+  if (!amountSats || amountSats < 1 || amountSats > 1_000_000) {
+    return res.status(400).json({ error: 'Invalid amount (1–1,000,000 sats)' });
+  }
+  try {
+    const receiveReq = await sparkWallet.createLightningInvoice({
+      amountSats,
+      memo: `Citrea Dashboard donation: ${amountSats} sats`,
+      expirySeconds: INVOICE_EXPIRY_SEC
+    });
+    const bolt11 = receiveReq.invoice.encodedInvoice;
+    const token = crypto.randomBytes(24).toString('hex');
+    paymentSessions.set(token, {
+      bolt11,
+      receiveRequestId: receiveReq.id,
+      status: 'pending',
+      createdAt: Date.now()
+    });
+    res.json({ token, bolt11, amountSats });
+  } catch (err) {
+    console.error('Donation invoice failed:', err.message);
+    res.status(500).json({ error: 'Failed to create invoice' });
+  }
 });
 
 // --- Existing API endpoints ---
@@ -604,6 +656,100 @@ app.get('/api/charts/l2-throughput', cached(req => `chart:l2tp:${req.query.perio
     `).all(minTime);
   }
   res.json({ data: rows, launch_batch_index: LAUNCH_BATCH_INDEX });
+}));
+
+// GET /api/transactions?offset=0&limit=50&prelaunch=0|1&type=commit|proof
+app.get('/api/transactions', cached(req => `txs:${req.query.offset||0}:${req.query.limit||50}:${req.query.prelaunch||'0'}:${req.query.type||'all'}`, (req, res) => {
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  const prelaunch = req.query.prelaunch === '1';
+  const timeFloor = prelaunch ? 0 : MAINNET_TS;
+  const typeFilter = req.query.type || 'all';
+
+  const commitQueries = [
+    { label: 'Commitment Inscribe', txCol: 'commit_txid', timeCol: 'commit_block_time' },
+    { label: 'Commitment Reveal', txCol: 'btc_txid', timeCol: 'btc_block_time' },
+  ];
+  const proofQueries = [
+    { label: 'Proof Inscribe', txCol: 'proof_commit_txid', timeCol: 'proof_commit_block_time' },
+    { label: 'Proof Reveal', txCol: 'proof_txid', timeCol: 'proof_block_time' },
+  ];
+  let queries;
+  if (typeFilter === 'commit') queries = commitQueries;
+  else if (typeFilter === 'proof') queries = proofQueries;
+  else queries = [...commitQueries, ...proofQueries];
+
+  const countParts = queries.map(q =>
+    `(SELECT COUNT(*) FROM commitments WHERE ${q.txCol} IS NOT NULL AND (btc_block_time IS NULL OR btc_block_time >= ?))`
+  ).join(' + ');
+  const countParams = queries.map(() => timeFloor);
+  const total = db.prepare(`SELECT ${countParts} AS cnt`).get(...countParams).cnt;
+
+  const unionParts = queries.map(q =>
+    `SELECT batch_index, '${q.label}' AS tx_type, ${q.txCol} AS txid, ${q.timeCol} AS block_time FROM commitments WHERE ${q.txCol} IS NOT NULL AND (btc_block_time IS NULL OR btc_block_time >= ?)`
+  ).join(' UNION ALL ');
+  const rowParams = [...queries.map(() => timeFloor), limit, offset];
+  const rows = db.prepare(`${unionParts} ORDER BY block_time DESC LIMIT ? OFFSET ?`).all(...rowParams);
+
+  res.json({ total, offset, limit, rows });
+}));
+
+// GET /api/tx/:txid — proxy mempool.space + enrich with batch info
+app.get('/api/tx/:txid', cached(req => `tx:${req.params.txid}`, async (req, res) => {
+  const txid = req.params.txid;
+  if (!/^[a-f0-9]{64}$/i.test(txid)) {
+    return res.status(400).json({ error: 'Invalid txid' });
+  }
+  try {
+    const [txResp, hexResp] = await Promise.all([
+      fetch(`https://mempool.space/api/tx/${txid}`),
+      fetch(`https://mempool.space/api/tx/${txid}/hex`)
+    ]);
+    if (!txResp.ok) return res.status(txResp.status).json({ error: 'Transaction not found' });
+    const tx = await txResp.json();
+    tx.hex = await hexResp.text();
+
+    // Enrich with Citrea batch info
+    const batchInfo = findTxBatch(txid);
+    if (batchInfo) {
+      tx.citrea = { batch_index: batchInfo.batch_index, tx_type: batchInfo.tx_type };
+
+      const bi = batchInfo.batch_index;
+      const tt = batchInfo.tx_type;
+      const chain = {};
+
+      for (const vin of tx.vin) {
+        const origin = findTxBatch(vin.txid);
+        if (origin) {
+          if (!chain.from) chain.from = [];
+          chain.from.push({ txid: vin.txid, batch_index: origin.batch_index, tx_type: origin.tx_type });
+        }
+      }
+
+      let nextTxid = null, nextType = null, nextBatch = null;
+      if (tt === 'Commitment Reveal') {
+        const row = db.prepare('SELECT commit_txid FROM commitments WHERE batch_index = ?').get(bi + 1);
+        if (row && row.commit_txid) { nextTxid = row.commit_txid; nextType = 'Commitment Inscribe'; nextBatch = bi + 1; }
+      } else if (tt === 'Proof Reveal') {
+        const row = db.prepare('SELECT proof_commit_txid FROM commitments WHERE batch_index = ?').get(bi + 1);
+        if (row && row.proof_commit_txid) { nextTxid = row.proof_commit_txid; nextType = 'Proof Inscribe'; nextBatch = bi + 1; }
+      } else if (tt === 'Commitment Inscribe') {
+        const row = db.prepare('SELECT btc_txid FROM commitments WHERE batch_index = ?').get(bi);
+        if (row && row.btc_txid) { nextTxid = row.btc_txid; nextType = 'Commitment Reveal'; nextBatch = bi; }
+      } else if (tt === 'Proof Inscribe') {
+        const row = db.prepare('SELECT proof_txid FROM commitments WHERE batch_index = ?').get(bi);
+        if (row && row.proof_txid) { nextTxid = row.proof_txid; nextType = 'Proof Reveal'; nextBatch = bi; }
+      }
+      if (nextTxid) {
+        chain.to = { txid: nextTxid, batch_index: nextBatch, tx_type: nextType };
+      }
+      tx.citrea.chain = chain;
+    }
+    res.json(tx);
+  } catch (err) {
+    console.error('Failed to fetch transaction:', err.message);
+    res.status(502).json({ error: 'Failed to fetch transaction data' });
+  }
 }));
 
 // GET /api/events — read pre-computed events from the daemon's events table

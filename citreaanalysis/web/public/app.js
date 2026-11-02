@@ -295,10 +295,10 @@
   };
 
   const chartEndpoints = {
-    'chart-fee-per-tx': '/api/charts/fee-per-tx',
-    'chart-fees': '/api/charts/fees',
-    'chart-tx': '/api/charts/tx-count',
-    'chart-util': '/api/charts/l2-throughput',
+    'chart-fee-per-tx': 'api/charts/fee-per-tx',
+    'chart-fees': 'api/charts/fees',
+    'chart-tx': 'api/charts/tx-count',
+    'chart-util': 'api/charts/l2-throughput',
   };
 
   function updateProofGapWarning(proofGap) {

@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transaction Analyzer — Citrea Dashboard</title>
+  <script>
+    (function(){var t=localStorage.getItem('citrea_theme')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);})();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=4">
+  <style>
+    main { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+    .tx-header { margin-bottom: 1.5rem; }
+    .tx-header h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .tx-header-row {
+      display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap;
+    }
+    .tx-header-info { flex: 1; min-width: 0; }
+    .output-header-row {
+      display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap;
+    }
+    .output-value { margin-left: auto; font-weight: 700; }
+    .txid-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .txid-full {
+      font-family: 'SF Mono','Fira Code',Menlo,Consolas,monospace;
+      font-size: 0.82rem; color: var(--text-dim); word-break: break-all;
+    }
+    .badge {
+      display: inline-block; padding: 0.15rem 0.55rem; border-radius: 6px;
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
+    }
+    .badge-commit { background: #fef3c7; color: #92400e; }
+    .badge-proof { background: #dbeafe; color: #1e40af; }
+    .badge-batch { background: #f3f4f6; color: #374151; }
+    .link-mempool {
+      font-size: 0.78rem; color: var(--accent); text-decoration: none;
+    }
+    .link-mempool:hover { text-decoration: underline; }
+
+    /* Size + Overview side-by-side layout */
+    .size-overview-row {
+      display: flex; gap: 4rem; align-items: flex-start;
+      justify-content: center;
+    }
+    .size-overview-row > div:first-child { flex: 0 0 auto; }
+    .ov-sidebar {
+      flex: 1 1 0;
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 0.65rem;
+    }
+    .ov-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.1rem 1.3rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .ov-label { display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+    .ov-value { display: block; font-size: 1.6rem; font-weight: 700; margin-top: 0.25rem; }
+
+    /* Size breakdown bar */
+    .section { margin-bottom: 1.5rem; }
+    .section h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; }
+    .size-bar {
+      display: flex; height: 32px; border-radius: 8px; overflow: hidden;
+      border: 1px solid var(--border); margin-bottom: 0.75rem;
+    }
+    .size-bar div { display: flex; align-items: center; justify-content: center; font-size: 0.65rem; font-weight: 600; color: #fff; min-width: 2px; }
+    .cat-overhead { background: #6b7280; }
+    .cat-input-ref { background: #9ca3af; }
+    .cat-output { background: #3b82f6; }
+    .cat-witness-sig { background: #8b5cf6; }
+    .cat-witness-script { background: #f97316; }
+    .cat-witness-cb { background: #06b6d4; }
+    .cat-witness-other { background: #ec4899; }
+
+    .size-legend {
+      display: flex; flex-wrap: wrap; gap: 0.75rem; font-size: 0.75rem; margin-bottom: 0.5rem;
+    }
+    .size-legend span { display: flex; align-items: center; gap: 0.3rem; }
+    .size-legend i {
+      display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+    }
+
+    /* Size table */
+    .size-table { width: auto; border-collapse: collapse; font-size: 0.82rem; }
+    .size-table th { text-align: left; font-weight: 600; padding: 0.4rem 0.75rem; border-bottom: 2px solid var(--border); color: var(--text-dim); font-size: 0.72rem; text-transform: uppercase; }
+    .size-table td { padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border-light); }
+    .size-table .pct { color: var(--text-dim); }
+    .size-table .indent { padding-left: 1.5rem; color: var(--text-dim); }
+    .mono { font-family: 'SF Mono','Fira Code',Menlo,Consolas,monospace; font-size: 0.8rem; }
+
+    /* Script view */
+    .script-view {
+      background: #1e1e2e; color: #cdd6f4; border-radius: 10px;
+      padding: 1rem; overflow-x: auto; font-family: 'SF Mono','Fira Code',Menlo,Consolas,monospace;
+      font-size: 0.78rem; line-height: 1.6; margin-top: 0.5rem;
+    }
+    .script-view .op { color: #89b4fa; }
+    .script-view .data { color: #a6e3a1; }
+    .script-view .data-large { color: #f9e2af; }
+    .script-view .envelope { color: #cba6f7; font-weight: 700; }
+    .script-view .comment { color: #6c7086; font-style: italic; }
+    .script-view .seq { color: #fab387; }
+
+    /* Witness items table */
+    .witness-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.5rem; }
+    .witness-table th { text-align: left; font-weight: 600; padding: 0.35rem 0.6rem; border-bottom: 2px solid var(--border); color: var(--text-dim); font-size: 0.72rem; text-transform: uppercase; }
+    .witness-table td { padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border-light); }
+    .witness-table .data-hex {
+      max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: 'SF Mono','Fira Code',Menlo,Consolas,monospace; font-size: 0.75rem; color: var(--text-dim);
+    }
+
+    /* Data summary */
+    .data-summary {
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border: 1px solid #fcd34d; border-radius: var(--radius);
+      padding: 1rem 1.25rem; margin-bottom: 1.5rem;
+    }
+    .data-summary.proof-summary {
+      background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+      border-color: #93c5fd;
+    }
+    .data-summary h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+    .data-stat { display: inline-block; margin-right: 1.5rem; margin-bottom: 0.25rem; }
+    .data-stat .val { font-weight: 700; font-size: 1.1rem; }
+    .data-stat .lbl { font-size: 0.75rem; color: var(--text-dim); }
+
+    /* Input/Output sections */
+    .io-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1rem; margin-bottom: 0.75rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .io-card h4 { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .io-meta { font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.35rem; }
+
+    #loading { text-align: center; padding: 4rem; color: var(--text-dim); font-size: 1rem; }
+    #error { text-align: center; padding: 4rem; color: #dc2626; }
+
+    /* ---- BIP-110 Lens ---- */
+    .bip110-toggle {
+      background: #e8850f; color: #fff; border: 2px solid #e8850f;
+      border-radius: 12px; padding: 0.75rem 1.5rem; font-size: 1rem;
+      font-weight: 700; cursor: pointer; transition: all 0.18s;
+      font-family: inherit; letter-spacing: 0.03em;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .bip110-toggle:hover { background: #d6760e; border-color: #d6760e; transform: scale(1.03); }
+    .bip110-toggle.active {
+      background: #f38ba8; color: #1e1e2e; border-color: #f38ba8;
+    }
+
+    .bip110-panel {
+      display: none; background: linear-gradient(135deg, #1e1e2e 0%, #2a1f2e 100%);
+      border: 2px solid #f38ba8; border-radius: var(--radius);
+      padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; color: #cdd6f4;
+    }
+    .bip110-panel.visible { display: block; }
+    .bip110-panel h3 { color: #f38ba8; font-size: 1rem; margin-bottom: 0.35rem; }
+    .bip110-panel .bip110-subtitle {
+      font-size: 0.78rem; color: #a6adc8; margin-bottom: 0.75rem;
+    }
+    .bip110-panel a { color: #89b4fa; }
+    .bip110-verdict {
+      display: inline-block; padding: 0.2rem 0.7rem; border-radius: 6px;
+      font-size: 0.78rem; font-weight: 700; margin-bottom: 0.75rem;
+    }
+    .bip110-verdict.rejected { background: #f38ba8; color: #1e1e2e; }
+    .bip110-verdict.ok { background: #a6e3a1; color: #1e1e2e; }
+
+    .bip110-violations { list-style: none; padding: 0; }
+    .bip110-violations li {
+      padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; border-radius: 8px;
+      background: rgba(243,139,168,0.1); border-left: 3px solid #f38ba8;
+      font-size: 0.82rem;
+    }
+    .bip110-violations .rule-num {
+      display: inline-block; background: #f38ba8; color: #1e1e2e;
+      padding: 0.05rem 0.4rem; border-radius: 4px; font-size: 0.7rem;
+      font-weight: 700; margin-right: 0.4rem;
+    }
+    .bip110-violations .violation-detail { color: #a6adc8; font-size: 0.75rem; margin-top: 0.15rem; }
+
+    /* Violation highlights — only when lens is active */
+    .bip110-active .bip110-flag-row { background: rgba(243,139,168,0.08) !important; }
+    .bip110-active .bip110-flag-row td:first-child::before {
+      content: '\26A0'; margin-right: 0.3rem; color: #f38ba8;
+    }
+    .bip110-active .bip110-flag-badge {
+      display: inline-block; background: #f38ba8; color: #1e1e2e;
+      padding: 0.05rem 0.35rem; border-radius: 4px; font-size: 0.62rem;
+      font-weight: 700; margin-left: 0.35rem; vertical-align: middle;
+    }
+    .bip110-flag-badge { display: none; }
+
+    /* Script view violations */
+    .bip110-active .script-view .bip110-strike {
+      text-decoration: line-through; text-decoration-color: #f38ba8;
+    }
+    .bip110-active .script-view .bip110-rule-tag {
+      display: inline-block; background: #f38ba8; color: #1e1e2e;
+      padding: 0rem 0.3rem; border-radius: 3px; font-size: 0.65rem;
+      font-weight: 700; margin-left: 0.3rem;
+    }
+    .script-view .bip110-rule-tag { display: none; }
+    .script-view .bip110-strike { text-decoration: none; }
+
+    /* Size table violation rows */
+    .bip110-active .size-table .bip110-over td { color: #f38ba8; }
+    .bip110-active .size-table .bip110-over td::after { content: ''; }
+
+    /* ---- Mobile responsive ---- */
+    @media (max-width: 768px) {
+      main { padding: 1rem; }
+      .size-overview-row {
+        flex-direction: column;
+        gap: 1.5rem;
+      }
+      .size-overview-row > div { width: 100%; overflow-x: auto; }
+      .ov-sidebar {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .ov-value { font-size: 1.25rem; }
+      .io-card { overflow-x: auto; }
+      .witness-table th:nth-child(4),
+      .witness-table td:nth-child(4) { display: none; }
+      .witness-table .data-hex { max-width: 180px; font-size: 0.68rem; }
+      .bip110-toggle { padding: 0.55rem 1rem; font-size: 0.85rem; }
+      .data-stat { display: block; margin-right: 0; margin-bottom: 0.5rem; }
+      .bip110-panel { padding: 1rem; }
+      .output-value { margin-left: 0; }
+    }
+    @media (max-width: 480px) {
+      main { padding: 0.75rem; }
+      .tx-header h2 { font-size: 1.05rem; }
+      .txid-full { font-size: 0.72rem; }
+      .ov-sidebar {
+        grid-template-columns: 1fr;
+      }
+      .ov-item { padding: 0.8rem 1rem; }
+      .ov-value { font-size: 1.1rem; }
+      .size-table { font-size: 0.75rem; }
+      .size-table th, .size-table td { padding: 0.3rem 0.5rem; }
+      .witness-table { font-size: 0.72rem; }
+      .witness-table .data-hex { max-width: 120px; }
+      .script-view { font-size: 0.68rem; padding: 0.75rem; }
+      .io-card { padding: 0.75rem; }
+      .bip110-toggle { width: 100%; text-align: center; }
+      .size-bar { height: 24px; }
+      .size-bar div { font-size: 0.55rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <a href="./" class="header-brand">
+        <img src="citreadashboard.jpg" alt="Citrea Dashboard" class="brand-logo">
+      </a>
+      <nav class="header-nav">
+        <div class="header-links">
+          <a href="methodology.html">Methodology</a>
+          <a href="about.html">About</a>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" title="Toggle theme" aria-label="Toggle theme">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content">
+    <div id="loading">Loading transaction...</div>
+  </main>
+
+  <footer>
+    <span class="footer-dot"></span>
+    made by <a href="https://yvrbtclabs.dev">yvrbtclabs.dev</a>
+    <span class="footer-sep">&middot;</span>
+    <a href="./">Dashboard</a>
+  </footer>
+
+  <script>
+  (function () {
+    /* ---- Opcode table ---- */
+    const OP = {
+      0x00:'OP_0',0x4c:'OP_PUSHDATA1',0x4d:'OP_PUSHDATA2',0x4e:'OP_PUSHDATA4',
+      0x4f:'OP_1NEGATE',0x51:'OP_1',0x52:'OP_2',0x53:'OP_3',0x54:'OP_4',0x55:'OP_5',
+      0x56:'OP_6',0x57:'OP_7',0x58:'OP_8',0x59:'OP_9',0x5a:'OP_10',0x5b:'OP_11',
+      0x5c:'OP_12',0x5d:'OP_13',0x5e:'OP_14',0x5f:'OP_15',0x60:'OP_16',
+      0x63:'OP_IF',0x64:'OP_NOTIF',0x67:'OP_ELSE',0x68:'OP_ENDIF',
+      0x69:'OP_VERIFY',0x6a:'OP_RETURN',0x75:'OP_DROP',0x76:'OP_DUP',
+      0x79:'OP_FROMALTSTACK',0x7b:'OP_ROT',0x87:'OP_EQUAL',0x88:'OP_EQUALVERIFY',
+      0xa8:'OP_SHA256',0xa9:'OP_HASH160',0xaa:'OP_HASH256',
+      0xac:'OP_CHECKSIG',0xad:'OP_CHECKSIGVERIFY',0xae:'OP_CHECKMULTISIG',
+      0xba:'OP_CHECKSIGADD',0x77:'OP_NIP'
+    };
+
+    /* ---- Helpers ---- */
+    function fmt(n) { return n == null ? '\u2014' : Number(n).toLocaleString(); }
+    function pct(part, total) { return total > 0 ? (part / total * 100).toFixed(1) + '%' : '0%'; }
+    function hexSlice(hex, start, len) { return hex.slice(start * 2, (start + len) * 2); }
+
+    /* ---- Script disassembler ---- */
+    function disassemble(hex) {
+      const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+      const ops = [];
+      let pos = 0;
+      while (pos < bytes.length) {
+        const op = bytes[pos++];
+        if (op >= 0x01 && op <= 0x4b) {
+          const data = hex.slice((pos - 1 + 1) * 2, (pos - 1 + 1 + op) * 2);
+          ops.push({ type: 'push', size: op, data, name: `OP_PUSHBYTES_${op}` });
+          pos += op;
+        } else if (op === 0x4c) {
+          const len = bytes[pos++];
+          const data = hex.slice(pos * 2, (pos + len) * 2);
+          ops.push({ type: 'push', size: len, data, name: 'OP_PUSHDATA1' });
+          pos += len;
+        } else if (op === 0x4d) {
+          const len = bytes[pos] | (bytes[pos + 1] << 8); pos += 2;
+          const data = hex.slice(pos * 2, (pos + len) * 2);
+          ops.push({ type: 'push', size: len, data, name: 'OP_PUSHDATA2' });
+          pos += len;
+        } else if (op === 0x4e) {
+          const len = bytes[pos] | (bytes[pos+1]<<8) | (bytes[pos+2]<<16) | (bytes[pos+3]<<24); pos += 4;
+          const data = hex.slice(pos * 2, (pos + len) * 2);
+          ops.push({ type: 'push', size: len, data, name: 'OP_PUSHDATA4' });
+          pos += len;
+        } else {
+          ops.push({ type: 'op', name: OP[op] || `0x${op.toString(16).padStart(2,'0')}` });
+        }
+      }
+      return ops;
+    }
+
+    /* ---- Identify Citrea envelope in ops ---- */
+    function findEnvelope(ops) {
+      // Pattern: ... OP_0 OP_IF <data pushes...> OP_ENDIF ...
+      let envStart = -1, envEnd = -1;
+      for (let i = 0; i < ops.length - 1; i++) {
+        if (ops[i].name === 'OP_0' && ops[i+1].name === 'OP_IF') { envStart = i; break; }
+      }
+      if (envStart < 0) return null;
+      for (let i = envStart + 2; i < ops.length; i++) {
+        if (ops[i].name === 'OP_ENDIF') { envEnd = i; break; }
+      }
+      if (envEnd < 0) return null;
+      const dataOps = ops.slice(envStart + 2, envEnd);
+      const totalData = dataOps.reduce((s, o) => s + (o.size || 0), 0);
+      return { start: envStart, end: envEnd, dataOps, totalData };
+    }
+
+    /* ---- Raw hex parser ---- */
+    function parseTxHex(hex) {
+      const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+      let pos = 0;
+      const sizes = { overhead: 0, inputRef: 0, inputScript: 0, output: 0, witness: 0 };
+
+      function readN(n) { const v = bytes.slice(pos, pos + n); pos += n; return v; }
+      function readVarInt() {
+        const f = bytes[pos++];
+        if (f < 0xfd) return f;
+        if (f === 0xfd) { const v = bytes[pos]|(bytes[pos+1]<<8); pos+=2; return v; }
+        if (f === 0xfe) { const v = bytes[pos]|(bytes[pos+1]<<8)|(bytes[pos+2]<<16)|(bytes[pos+3]<<24); pos+=4; return v; }
+        pos += 8; return 0; // simplification
+      }
+      function varIntSize(n) { return n < 0xfd ? 1 : n <= 0xffff ? 3 : n <= 0xffffffff ? 5 : 9; }
+
+      // Version
+      readN(4); sizes.overhead += 4;
+      // Segwit?
+      let segwit = false;
+      if (bytes[pos] === 0x00 && bytes[pos+1] === 0x01) {
+        segwit = true; readN(2); sizes.overhead += 2;
+      }
+      // Inputs
+      const inCount = readVarInt(); sizes.overhead += varIntSize(inCount);
+      const inputs = [];
+      for (let i = 0; i < inCount; i++) {
+        readN(32); sizes.inputRef += 32; // prevout hash
+        readN(4); sizes.inputRef += 4;   // prevout index
+        const ssLen = readVarInt(); sizes.inputScript += varIntSize(ssLen);
+        if (ssLen > 0) { readN(ssLen); sizes.inputScript += ssLen; }
+        readN(4); sizes.inputRef += 4;   // sequence
+        inputs.push({ scriptsigLen: ssLen });
+      }
+      // Outputs
+      const outCount = readVarInt(); sizes.overhead += varIntSize(outCount);
+      for (let i = 0; i < outCount; i++) {
+        readN(8); sizes.output += 8;     // value
+        const spkLen = readVarInt(); sizes.output += varIntSize(spkLen);
+        readN(spkLen); sizes.output += spkLen;
+      }
+      // Witness
+      const witnessItems = [];
+      if (segwit) {
+        for (let i = 0; i < inCount; i++) {
+          const itemCount = readVarInt(); sizes.witness += varIntSize(itemCount);
+          const items = [];
+          for (let j = 0; j < itemCount; j++) {
+            const itemLen = readVarInt(); sizes.witness += varIntSize(itemLen);
+            const data = hex.slice(pos * 2, (pos + itemLen) * 2);
+            readN(itemLen); sizes.witness += itemLen;
+            items.push({ size: itemLen, hex: data });
+          }
+          witnessItems.push(items);
+        }
+      }
+      // Locktime
+      readN(4); sizes.overhead += 4;
+      return { sizes, segwit, witnessItems };
+    }
+
+    /* ---- Classify witness items ---- */
+    function classifyWitnessItem(item, index, total) {
+      if (item.size === 0) return { label: 'Empty', cat: 'other' };
+      if (item.size === 64 || item.size === 65) return { label: 'Schnorr signature', cat: 'sig' };
+      if (index === total - 1 && (item.size - 33) % 32 === 0) return { label: 'Control block', cat: 'cb' };
+      if (index === total - 2 && total >= 3) return { label: 'Leaf script', cat: 'script' };
+      return { label: `Data (${fmt(item.size)} bytes)`, cat: 'data' };
+    }
+
+    /* ---- BIP-110 Analysis ---- */
+    const BIP110_LIMIT_WITNESS = 256;
+    const BIP110_LIMIT_PUSHDATA = 256;
+    const BIP110_LIMIT_SPK = 34;
+    const BIP110_LIMIT_OPRETURN = 83;
+    const BIP110_LIMIT_CB = 257;
+
+    function analyzeBip110(tx, parsed) {
+      const violations = [];
+      // Per witness-item violations: map of "inputIdx-itemIdx" -> [{rule, desc}]
+      const witnessFlags = {};
+      // Per script-op violations: map of opIdx -> [{rule, desc}]
+      const scriptFlags = {};
+
+      tx.vin.forEach((vin, i) => {
+        const isTaproot = vin.prevout && vin.prevout.scriptpubkey_type === 'v1_p2tr';
+        if (!isTaproot) return;
+        const items = parsed.witnessItems[i];
+        if (!items || items.length === 0) return;
+
+        const isScriptPath = items.length >= 2 && items[items.length - 1].size >= 33
+          && (items[items.length - 1].size - 33) % 32 === 0;
+
+        // Rule 2 (part): witness stack elements > 256 bytes
+        items.forEach((item, j) => {
+          if (item.size > BIP110_LIMIT_WITNESS) {
+            const key = `${i}-${j}`;
+            if (!witnessFlags[key]) witnessFlags[key] = [];
+            witnessFlags[key].push({
+              rule: 2, desc: `Witness element is ${fmt(item.size)} bytes (limit: ${BIP110_LIMIT_WITNESS})`
+            });
+            const cls = classifyWitnessItem(item, j, items.length);
+            violations.push({
+              rule: 2,
+              title: `Witness element exceeds ${BIP110_LIMIT_WITNESS}-byte limit`,
+              detail: `Input #${i}, item #${j} (${cls.label}): ${fmt(item.size)} bytes — ${(item.size / BIP110_LIMIT_WITNESS).toFixed(0)}x over the limit`
+            });
+          }
+        });
+
+        // Rule 5: control block > 257 bytes
+        if (isScriptPath) {
+          const cb = items[items.length - 1];
+          if (cb.size > BIP110_LIMIT_CB) {
+            const key = `${i}-${items.length - 1}`;
+            if (!witnessFlags[key]) witnessFlags[key] = [];
+            witnessFlags[key].push({ rule: 5, desc: `Control block exceeds ${BIP110_LIMIT_CB} bytes` });
+            violations.push({
+              rule: 5,
+              title: `Control block exceeds ${BIP110_LIMIT_CB}-byte limit`,
+              detail: `Input #${i}: ${fmt(cb.size)} bytes`
+            });
+          }
+        }
+
+        // Tapscript analysis — OP_IF and oversized pushdata
+        if (isScriptPath && items.length >= 3) {
+          const scriptItem = items[items.length - 2];
+          if (scriptItem.size > 0) {
+            const ops = disassemble(scriptItem.hex);
+            ops.forEach((op, opIdx) => {
+              // Rule 7: OP_IF/OP_NOTIF in Tapscript
+              if (op.name === 'OP_IF' || op.name === 'OP_NOTIF') {
+                if (!scriptFlags[opIdx]) scriptFlags[opIdx] = [];
+                scriptFlags[opIdx].push({ rule: 7, desc: `${op.name} is banned in Tapscripts` });
+                // Only add to top-level violations once
+                if (!violations.find(v => v.rule === 7)) {
+                  violations.push({
+                    rule: 7,
+                    title: `${op.name} executed in Tapscript`,
+                    detail: `BIP-110 bans OP_IF and OP_NOTIF in Tapscripts. Citrea uses OP_0 OP_IF ... OP_ENDIF as a data envelope — this entire pattern becomes invalid.`
+                  });
+                }
+              }
+              // Rule 2 (part): OP_PUSHDATA payloads > 256 bytes
+              if (op.type === 'push' && op.size > BIP110_LIMIT_PUSHDATA) {
+                if (!scriptFlags[opIdx]) scriptFlags[opIdx] = [];
+                scriptFlags[opIdx].push({ rule: 2, desc: `Data push is ${fmt(op.size)} bytes (limit: ${BIP110_LIMIT_PUSHDATA})` });
+                // Only add summary violation once for this rule in scripts
+                if (!violations.find(v => v.rule === 2 && v.title.includes('push'))) {
+                  const bigPushes = ops.filter(o => o.type === 'push' && o.size > BIP110_LIMIT_PUSHDATA);
+                  const totalBig = bigPushes.reduce((s, o) => s + o.size, 0);
+                  violations.push({
+                    rule: 2,
+                    title: `Data pushes exceed ${BIP110_LIMIT_PUSHDATA}-byte limit`,
+                    detail: `${bigPushes.length} push operations over the limit (${fmt(totalBig)} bytes total). Citrea splits data into 520-byte chunks — every single chunk would be invalid.`
+                  });
+                }
+              }
+            });
+          }
+        }
+      });
+
+      // Output checks
+      tx.vout.forEach((vout, i) => {
+        const spkLen = vout.scriptpubkey.length / 2;
+        const isOpReturn = vout.scriptpubkey_type === 'op_return';
+        if (isOpReturn && spkLen > BIP110_LIMIT_OPRETURN) {
+          violations.push({
+            rule: 1,
+            title: `OP_RETURN output exceeds ${BIP110_LIMIT_OPRETURN}-byte limit`,
+            detail: `Output #${i}: ${spkLen} bytes`
+          });
+        } else if (!isOpReturn && spkLen > BIP110_LIMIT_SPK) {
+          violations.push({
+            rule: 1,
+            title: `Output scriptPubKey exceeds ${BIP110_LIMIT_SPK}-byte limit`,
+            detail: `Output #${i}: ${spkLen} bytes (type: ${vout.scriptpubkey_type})`
+          });
+        }
+      });
+
+      // Deduplicate witness element violations into a summary
+      const witnessSummary = [];
+      const oversizedItems = Object.keys(witnessFlags).filter(k =>
+        witnessFlags[k].some(v => v.rule === 2)
+      );
+      if (oversizedItems.length > 0) {
+        // Already added individually above
+      }
+
+      return { violations, witnessFlags, scriptFlags };
+    }
+
+    /* ---- Render functions ---- */
+    const main = document.getElementById('content');
+    let bip110Active = false;
+    let bip110Result = null;
+
+    function renderPage(tx, parsed) {
+      bip110Result = analyzeBip110(tx, parsed);
+      main.innerHTML = '';
+      renderHeader(tx);
+      renderBip110Panel(bip110Result);
+      renderCitreaSummary(tx, parsed);
+      renderSizeAndOverview(tx, parsed);
+      renderInputs(tx, parsed, bip110Result);
+      renderOutputs(tx);
+
+      // Wire up BIP-110 toggle
+      const toggleBtn = document.getElementById('bip110-toggle');
+      function setBip110(on) {
+        bip110Active = on;
+        toggleBtn.classList.toggle('active', on);
+        document.body.classList.toggle('bip110-active', on);
+        document.getElementById('bip110-panel').classList.toggle('visible', on);
+      }
+      toggleBtn.addEventListener('click', () => setBip110(!bip110Active));
+      // Auto-enable if ?bip110=1 in URL
+      if (new URLSearchParams(location.search).get('bip110') === '1') {
+        setBip110(true);
+      }
+    }
+
+    function renderHeader(tx) {
+      const div = document.createElement('div');
+      div.className = 'tx-header';
+      const badges = [];
+      if (tx.citrea) {
+        const cls = tx.citrea.tx_type.startsWith('Proof') ? 'badge-proof' : 'badge-commit';
+        badges.push(`<span class="badge ${cls}">${tx.citrea.tx_type}</span>`);
+        badges.push(`<span class="badge badge-batch">Batch #${tx.citrea.batch_index}</span>`);
+      }
+      div.innerHTML = `
+        <div class="tx-header-row">
+          <div class="tx-header-info">
+            <h2>Transaction ${badges.join(' ')}</h2>
+            <div class="txid-row">
+              <span class="txid-full">${tx.txid}</span>
+              <a class="link-mempool" href="https://mempool.space/tx/${tx.txid}" target="_blank" rel="noopener">mempool.space &rarr;</a>
+            </div>
+          </div>
+          <button id="bip110-toggle" class="bip110-toggle">BIP-110 Lens</button>
+        </div>
+      `;
+      main.appendChild(div);
+    }
+
+    function renderBip110Panel(result) {
+      const div = document.createElement('div');
+      div.className = 'bip110-panel';
+      div.id = 'bip110-panel';
+      const count = result.violations.length;
+      const rejected = count > 0;
+      const verdictCls = rejected ? 'rejected' : 'ok';
+      const verdictText = rejected
+        ? `REJECTED \u2014 ${count} violation${count !== 1 ? 's' : ''} found`
+        : 'VALID \u2014 no violations found';
+
+      let listHtml = '';
+      if (rejected) {
+        // Deduplicate by rule+title
+        const seen = new Set();
+        const unique = result.violations.filter(v => {
+          const key = v.rule + ':' + v.title;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        listHtml = '<ul class="bip110-violations">' + unique.map(v =>
+          `<li><span class="rule-num">Rule ${v.rule}</span> <strong>${v.title}</strong>` +
+          `<div class="violation-detail">${v.detail}</div></li>`
+        ).join('') + '</ul>';
+      }
+
+      div.innerHTML = `
+        <h3>BIP-110 Analysis</h3>
+        <div class="bip110-subtitle">
+          <a href="https://bip110.org" target="_blank" rel="noopener">BIP-110</a>
+          proposes temporary limits on witness elements (256 bytes), data pushes (256 bytes),
+          and bans OP_IF in Tapscripts. Would this transaction survive?
+        </div>
+        <div class="bip110-verdict ${verdictCls}">${verdictText}</div>
+        ${listHtml}
+      `;
+      main.appendChild(div);
+    }
+
+    function renderCitreaSummary(tx, parsed) {
+      if (!tx.citrea) return;
+      const isReveal = tx.citrea.tx_type.includes('Reveal');
+      if (!isReveal) return;
+
+      // Find the script witness item and analyze envelope
+      let envelopeData = null;
+      let scriptHex = '';
+      for (const items of parsed.witnessItems) {
+        if (items.length >= 3) {
+          scriptHex = items[items.length - 2].hex;
+          const ops = disassemble(scriptHex);
+          envelopeData = findEnvelope(ops);
+          break;
+        }
+      }
+      if (!envelopeData) return;
+
+      const isProof = tx.citrea.tx_type.startsWith('Proof');
+      const div = document.createElement('div');
+      div.className = 'data-summary' + (isProof ? ' proof-summary' : '');
+      const dataPct = (envelopeData.totalData / tx.size * 100).toFixed(1);
+      const costPerByte = tx.fee > 0 ? (tx.fee / envelopeData.totalData).toFixed(2) : '\u2014';
+      const chunks = envelopeData.dataOps.filter(o => o.size > 0).length;
+      div.innerHTML = `
+        <h3>Citrea ${isProof ? 'Proof' : 'Commitment'} Data</h3>
+        <div class="data-stat"><span class="val">${fmt(envelopeData.totalData)}</span> <span class="lbl">bytes embedded</span></div>
+        <div class="data-stat"><span class="val">${dataPct}%</span> <span class="lbl">of tx size is data</span></div>
+        <div class="data-stat"><span class="val">${costPerByte}</span> <span class="lbl">sats/byte of data</span></div>
+        <div class="data-stat"><span class="val">${chunks}</span> <span class="lbl">data push${chunks !== 1 ? 'es' : ''} in OP_IF envelope</span></div>
+        <div style="margin-top:0.4rem; font-size:0.78rem; color:var(--text-dim);">
+          Stored in Taproot script-path witness via <strong>OP_0 OP_IF ... OP_ENDIF</strong> envelope
+          ${envelopeData.totalData > 520 ? '(split into 520-byte chunks)' : ''}
+        </div>
+      `;
+      main.appendChild(div);
+    }
+
+    function renderSizeAndOverview(tx, parsed) {
+      const s = parsed.sizes;
+      const total = s.overhead + s.inputRef + s.inputScript + s.output + s.witness;
+      const txOverhead = s.overhead + s.inputRef + s.inputScript + s.output;
+      // Further break down witness
+      let witnessSig = 0, witnessScript = 0, witnessCb = 0, witnessOther = 0;
+      for (const items of parsed.witnessItems) {
+        items.forEach((item, idx) => {
+          const cls = classifyWitnessItem(item, idx, items.length);
+          if (cls.cat === 'sig') witnessSig += item.size;
+          else if (cls.cat === 'script') witnessScript += item.size;
+          else if (cls.cat === 'cb') witnessCb += item.size;
+          else witnessOther += item.size;
+        });
+      }
+      const witnessVarints = s.witness - witnessSig - witnessScript - witnessCb - witnessOther;
+      const witnessOverhead = witnessSig + witnessCb + witnessVarints;
+
+      const sec = document.createElement('div');
+      sec.className = 'section';
+      // Bar: just two segments — data vs everything else
+      const dataSize = witnessScript + witnessOther;
+      const otherSize = total - dataSize;
+      const barHtml = [
+        { size: otherSize, cls: 'cat-overhead', label: 'Overhead' },
+        { size: dataSize, cls: 'cat-witness-script', label: 'Citrea data' },
+      ].filter(sg => sg.size > 0).map(sg => {
+        const w = (sg.size / total * 100);
+        return `<div class="${sg.cls}" style="width:${w}%" title="${sg.label}: ${fmt(sg.size)} B (${pct(sg.size, total)})">${w > 5 ? fmt(sg.size) + ' B' : ''}</div>`;
+      }).join('');
+
+      // Build rows
+      const rows = [];
+      if (witnessScript > 0) rows.push({ label: 'Citrea data', bytes: witnessScript, highlight: true });
+      if (witnessOther > 0) rows.push({ label: 'Other witness data', bytes: witnessOther, highlight: true });
+      rows.push({ label: 'Signature', bytes: witnessSig });
+      rows.push({ label: 'Control block', bytes: witnessCb });
+      if (witnessVarints > 0) rows.push({ label: 'Witness encoding', bytes: witnessVarints });
+      rows.push({ label: 'Tx overhead', bytes: txOverhead, dim: true });
+
+      const vsize = Math.ceil(tx.weight / 4);
+      const feeRate = (tx.fee / vsize).toFixed(2);
+      const ovItems = [
+        { label: 'Size', value: fmt(tx.size) + ' B' },
+        { label: 'Weight', value: fmt(tx.weight) + ' WU' },
+        { label: 'Virtual Size', value: fmt(vsize) + ' vB' },
+        { label: 'Fee', value: fmt(tx.fee) + ' sats' },
+        { label: 'Fee Rate', value: feeRate + ' sat/vB' },
+        { label: 'Block', value: tx.status && tx.status.block_height ? fmt(tx.status.block_height) : '\u2014' },
+      ];
+
+      sec.innerHTML = `
+        <div class="size-bar">${barHtml}</div>
+        <div class="size-overview-row">
+          <div>
+            <h3>Size Breakdown</h3>
+            <table class="size-table">
+              <thead><tr><th>Component</th><th style="text-align:right">Bytes</th><th style="text-align:right">%</th></tr></thead>
+              <tbody>
+                ${rows.map(r => {
+                  const p = pct(r.bytes, total);
+                  const style = r.highlight ? 'font-weight:600;color:var(--accent)' : r.dim ? 'color:var(--text-faint)' : '';
+                  return `<tr><td style="${style}">${r.label}</td><td class="mono" style="text-align:right;${style}">${fmt(r.bytes)}</td><td class="pct" style="text-align:right">${p}</td></tr>`;
+                }).join('')}
+                <tr style="border-top:2px solid var(--border);font-weight:700"><td>Total</td><td class="mono" style="text-align:right">${fmt(total)}</td><td class="pct" style="text-align:right">100%</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h3>Transaction Details</h3>
+            <div class="ov-sidebar">
+              ${ovItems.map(i => `<div class="ov-item"><span class="ov-label">${i.label}</span><span class="ov-value">${i.value}</span></div>`).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+      main.appendChild(sec);
+    }
+
+    function renderInputs(tx, parsed, bip110) {
+      const sec = document.createElement('div');
+      sec.className = 'section';
+      sec.innerHTML = '<h3>Inputs</h3>';
+
+      tx.vin.forEach((vin, i) => {
+        const card = document.createElement('div');
+        card.className = 'io-card';
+        const prevType = vin.prevout ? vin.prevout.scriptpubkey_type : 'unknown';
+        const prevValue = vin.prevout ? fmt(vin.prevout.value) + ' sats' : '\u2014';
+        let originHtml = '';
+        if (tx.citrea && tx.citrea.chain && tx.citrea.chain.from) {
+          const origin = tx.citrea.chain.from.find(o => o.txid === vin.txid);
+          if (origin) {
+            originHtml = ` &larr; <a href="tx.html?txid=${origin.txid}" class="tx-link">${origin.tx_type} (batch #${origin.batch_index})</a>`;
+          }
+        }
+        card.innerHTML = `<h4>Input #${i}</h4>
+          <div class="io-meta">Spending: <strong>${prevType}</strong> &mdash; ${prevValue}${originHtml}</div>`;
+
+        // Witness items
+        const items = parsed.witnessItems[i];
+        if (items && items.length > 0) {
+          let tbl = `<table class="witness-table">
+            <thead><tr><th>#</th><th>Size</th><th>Type</th><th></th><th>Data</th></tr></thead><tbody>`;
+          items.forEach((item, j) => {
+            const cls = classifyWitnessItem(item, j, items.length);
+            const displayHex = item.hex.length > 80 ? item.hex.slice(0, 40) + '\u2026' + item.hex.slice(-40) : item.hex;
+            const wf = bip110.witnessFlags[`${i}-${j}`];
+            const flagCls = wf ? ' bip110-flag-row' : '';
+            const flagBadge = wf
+              ? `<span class="bip110-flag-badge">${wf.map(v => 'Rule ' + v.rule).join(', ')}: ${fmt(item.size)}B &gt; ${BIP110_LIMIT_WITNESS}B</span>`
+              : '';
+            tbl += `<tr class="${flagCls}"><td>${j}</td><td class="mono">${fmt(item.size)} B</td><td>${cls.label}${flagBadge}</td><td></td><td class="data-hex">${displayHex}</td></tr>`;
+          });
+          tbl += '</tbody></table>';
+          card.innerHTML += tbl;
+
+          // If there's a leaf script, disassemble it
+          const scriptIdx = items.length >= 3 ? items.length - 2 : -1;
+          if (scriptIdx >= 0 && items[scriptIdx].size > 0) {
+            const ops = disassemble(items[scriptIdx].hex);
+            const envelope = findEnvelope(ops);
+            card.innerHTML += '<h4 style="margin-top:0.75rem">Leaf Script Disassembly</h4>';
+            card.appendChild(renderScript(ops, envelope, bip110.scriptFlags));
+          }
+        }
+        sec.appendChild(card);
+      });
+      main.appendChild(sec);
+    }
+
+    function renderScript(ops, envelope, scriptFlags) {
+      const div = document.createElement('div');
+      div.className = 'script-view';
+      const lines = [];
+      ops.forEach((op, i) => {
+        let cls = 'op';
+        let annotation = '';
+        let bipTag = '';
+        const sf = scriptFlags && scriptFlags[i];
+        if (sf) {
+          const rules = sf.map(v => 'Rule ' + v.rule).join(', ');
+          bipTag = ` <span class="bip110-rule-tag">${rules}</span>`;
+        }
+        const strike = sf ? ' bip110-strike' : '';
+        const inEnvelope = envelope && i > envelope.start + 1 && i < envelope.end;
+        if (op.type === 'push') {
+          if (inEnvelope) {
+            cls = op.size >= 64 ? 'data-large' : 'data';
+            annotation = ` <span class="comment">// ${fmt(op.size)} bytes${op.size === 520 ? ' (max push)' : ''}</span>`;
+          } else if (op.size === 32) {
+            annotation = ' <span class="comment">// pubkey (x-only)</span>';
+          } else if (op.size === 64 || op.size === 65) {
+            annotation = ' <span class="comment">// Schnorr signature</span>';
+          }
+          const preview = op.data.length > 40 ? op.data.slice(0, 20) + '\u2026' + op.data.slice(-20) : op.data;
+          lines.push(`<span class="${cls}${strike}">${op.name}</span> <span class="${inEnvelope ? cls : 'data'}${strike}">${preview}</span>${annotation}${bipTag}`);
+        } else {
+          if (op.name === 'OP_0' && envelope && i === envelope.start) {
+            cls = 'envelope';
+            annotation = ' <span class="comment">// --- envelope start ---</span>';
+          } else if (op.name === 'OP_IF' && envelope && i === envelope.start + 1) {
+            cls = 'envelope';
+          } else if (op.name === 'OP_ENDIF' && envelope && i === envelope.end) {
+            cls = 'envelope';
+            annotation = ' <span class="comment">// --- envelope end ---</span>';
+          } else if (op.name === 'OP_CHECKSIGVERIFY' || op.name === 'OP_CHECKSIG') {
+            annotation = ' <span class="comment">// verify sequencer key</span>';
+          } else if (op.name === 'OP_NIP') {
+            annotation = ' <span class="comment">// clean up stack</span>';
+          }
+          lines.push(`<span class="${cls}${strike}">${op.name}</span>${annotation}${bipTag}`);
+        }
+      });
+      div.innerHTML = lines.join('\n');
+      return div;
+    }
+
+    function renderOutputs(tx) {
+      const sec = document.createElement('div');
+      sec.className = 'section';
+      sec.innerHTML = '<h3>Outputs</h3>';
+      tx.vout.forEach((vout, i) => {
+        const card = document.createElement('div');
+        card.className = 'io-card';
+        const spkType = vout.scriptpubkey_type || 'unknown';
+        const spkLen = vout.scriptpubkey.length / 2;
+
+        // Purpose tag + chain link
+        let tagHtml = '';
+        let chainHtml = '';
+        if (tx.citrea && tx.citrea.chain) {
+          const chain = tx.citrea.chain;
+          const tt = tx.citrea.tx_type;
+          if (tt.includes('Reveal') && i === 0) {
+            tagHtml = '<span class="badge" style="background:#dcfce7;color:#166534">Dust UTXO</span>';
+            if (chain.to) chainHtml = `<a href="tx.html?txid=${chain.to.txid}" class="tx-link">${chain.to.tx_type} #${chain.to.batch_index} &rarr;</a>`;
+          } else if (tt.includes('Inscribe') && i === 0) {
+            tagHtml = '<span class="badge" style="background:#dbeafe;color:#1e40af">Data inscription</span>';
+            if (chain.to) chainHtml = `<a href="tx.html?txid=${chain.to.txid}" class="tx-link">${chain.to.tx_type} #${chain.to.batch_index} &rarr;</a>`;
+          } else if (tt.includes('Inscribe') && i === 1) {
+            tagHtml = '<span class="badge" style="background:#f3f4f6;color:#6b7280">Change</span>';
+          }
+        }
+
+        card.innerHTML = `
+          <div class="output-header-row">
+            <h4 style="margin:0">Output #${i}</h4>
+            <span class="badge badge-batch">${spkType}</span>
+            ${tagHtml}
+            <span class="output-value">${fmt(vout.value)} sats</span>
+          </div>
+          ${vout.scriptpubkey_address ? `<div class="io-meta"><span class="mono">${vout.scriptpubkey_address}</span></div>` : ''}
+          <div class="io-meta" style="font-size:0.72rem">Script: ${spkLen} bytes</div>
+          ${chainHtml ? `<div style="margin-top:0.35rem">${chainHtml}</div>` : ''}
+        `;
+        sec.appendChild(card);
+      });
+      main.appendChild(sec);
+    }
+
+    /* ---- Main ---- */
+    async function init() {
+      const params = new URLSearchParams(location.search);
+      const txid = params.get('txid');
+      if (!txid || !/^[a-f0-9]{64}$/i.test(txid)) {
+        main.innerHTML = '<div id="error">Invalid or missing transaction ID.</div>';
+        return;
+      }
+      document.title = `TX ${txid.slice(0, 8)}\u2026 \u2014 Citrea Analyzer`;
+      try {
+        const resp = await fetch(`api/tx/${txid}`);
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          main.innerHTML = `<div id="error">${err.error || 'Failed to load transaction.'}</div>`;
+          return;
+        }
+        const tx = await resp.json();
+        const parsed = parseTxHex(tx.hex);
+        renderPage(tx, parsed);
+      } catch (e) {
+        console.error(e);
+        main.innerHTML = `<div id="error">Error loading transaction: ${e.message}</div>`;
+      }
+    }
+
+    init();
+  })();
+  </script>
+  <script>
+    (function(){
+      var btn=document.getElementById('theme-toggle');
+      if(btn) btn.addEventListener('click',function(){
+        var cur=document.documentElement.getAttribute('data-theme');
+        var next=cur==='dark'?'light':'dark';
+        document.documentElement.setAttribute('data-theme',next);
+        localStorage.setItem('citrea_theme',next);
+      });
+    })();
+  </script>
+</body>
+</html>
