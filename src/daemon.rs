@@ -337,7 +337,7 @@ fn pipeline_discover_and_enrich(
     let last_scanned = db
         .get_sync_value("last_scanned_l1_height")?
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(btc_height.saturating_sub(15000));
+        .unwrap_or(btc_height.saturating_sub(17280));
 
     if last_scanned >= btc_height {
         log::debug!("No new Bitcoin blocks to scan (at {})", btc_height);
